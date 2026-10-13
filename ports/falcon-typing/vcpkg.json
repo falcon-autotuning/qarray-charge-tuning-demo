@@ -1,0 +1,15 @@
+{
+  "name": "falcon-typing",
+  "version": "1.0.1",
+  "description": "Shared primitive-types and FFI-boundary library for the Falcon DSL ecosystem. Provides falcon-typing/FFIHelpers.hpp, FalconParamEntry and FalconResultSlot, which every `ffimport` native wrapper marshals through.",
+  "homepage": "https://github.com/falcon-autotuning/falcon-typing",
+  "license": "MPL-2.0",
+  "dependencies": [
+    {
+      "name": "vcpkg-cmake"
+    },
+    {
+      "name": "vcpkg-cmake-config"
+    }
+  ]
+}

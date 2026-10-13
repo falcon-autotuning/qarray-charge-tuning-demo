@@ -1,0 +1,26 @@
+# NuGet binary-cache credentials — never commit
+.nuget-credentials
+
+# vcpkg (cloned + populated by `make vcpkg-bootstrap`)
+vcpkg/
+vcpkg_installed/
+my-vcpkg-triplets/
+
+# build output
+build/
+compile_commands.json
+
+# python venv (created by `make venv-setup`)
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+
+# demo run artifacts
+*.log
+
+# generated from hub.fal.in by `make configure`
+hub.fal
+
+# project-local temp dir, used when /tmp is mounted noexec
+.tmp/

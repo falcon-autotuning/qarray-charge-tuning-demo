@@ -1,0 +1,13 @@
+{
+  "name": "falcon",
+  "version": "1.1.4",
+  "description": "The Falcon DSL standard library (.fal packages). Data only — installs libs/ into share/falcon/libs for discovery via FALCON_LIBRARY_PATH; does not build the upstream /opt/falcon CPack aggregate.",
+  "homepage": "https://github.com/falcon-autotuning/falcon",
+  "license": "MPL-2.0",
+  "dependencies": [
+    {
+      "name": "falcon-dsl",
+      "version>=": "1.0.4"
+    }
+  ]
+}

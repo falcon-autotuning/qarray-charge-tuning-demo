@@ -17,22 +17,23 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <dlfcn.h>
 #include <falcon-typing/FFIHelpers.hpp>
-#include <falcon_core/communications/voltage_states/DeviceVoltageState.hpp>
-#include <falcon_core/communications/voltage_states/DeviceVoltageStates.hpp>
-#include <falcon_core/generic/FArray.hpp>
-#include <falcon_core/generic/List.hpp>
-#include <falcon_core/math/Point.hpp>
-#include <falcon_core/math/Quantity.hpp>
-#include <falcon_core/physics/device_structures/Connection.hpp>
-#include <falcon_core/physics/device_structures/Connections.hpp>
+#include <falcon-core/communications/voltage_states/DeviceVoltageState.hpp>
+#include <falcon-core/communications/voltage_states/DeviceVoltageStates.hpp>
+#include <falcon-core/generic/FArray.hpp>
+#include <falcon-core/generic/List.hpp>
+#include <falcon-core/math/Point.hpp>
+#include <falcon-core/math/Quantity.hpp>
+#include <falcon-core/physics/device_structures/Connection.hpp>
+#include <falcon-core/physics/device_structures/Connections.hpp>
 #include <filesystem>
 #include <memory>
 #include <plplot/plplot.h>
 #include <plplot/plplotP.h>
 #include <plplot/plstream.h>
-#include <qarrayDevice/Device.hpp>
+#include <falcon-qarray-device/Device.hpp>
 #include <spdlog/spdlog.h>
 #include <stdexcept>
 #include <string>
@@ -47,9 +48,25 @@ namespace {
 bool python_initialized = false;
 std::unique_ptr<pybind11::scoped_interpreter> g_interpreter;
 
+// libpython has to come in with RTLD_GLOBAL so that C extension modules loaded
+// later (numpy, qarray-rust-core) can resolve CPython symbols. The path is baked
+// in at build time from the interpreter this wrapper was compiled against, and
+// overridable at runtime via FALCON_LIBPYTHON.
+#ifndef FALCON_LIBPYTHON_PATH
+#define FALCON_LIBPYTHON_PATH "libpython3.12.so"
+#endif
+
 void ensure_python_interpreter() {
   if (!python_initialized) {
-    dlopen("/opt/falcon/lib/libpython3.12.so", RTLD_NOW | RTLD_GLOBAL);
+    const char *libpython = std::getenv("FALCON_LIBPYTHON");
+    if (libpython == nullptr || *libpython == '\0') {
+      libpython = FALCON_LIBPYTHON_PATH;
+    }
+    if (dlopen(libpython, RTLD_NOW | RTLD_GLOBAL) == nullptr) {
+      spdlog::warn("qarray-wrapper: dlopen(\"{}\") failed: {} — extension "
+                   "modules may fail to import",
+                   libpython, dlerror());
+    }
     g_interpreter = std::make_unique<pybind11::scoped_interpreter>();
     python_initialized = true;
     spdlog::info("Python interpreter initialized for qarray-wrapper");

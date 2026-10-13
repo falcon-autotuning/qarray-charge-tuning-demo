@@ -1,0 +1,78 @@
+{
+  "name": "qarray-charge-tuning-demo",
+  "version": "1.0.0",
+  "description": "FAlCon charge-tuning demo against the qarray quantum-dot simulator. Builds the qarray-wrapper.cpp ffimport shim that hub.fal binds to.",
+  "homepage": "https://github.com/falcon-autotuning/qarray-charge-tuning-demo",
+  "license": "MPL-2.0",
+  "dependencies": [
+    {
+      "name": "falcon-core",
+      "version>=": "1.2.16"
+    },
+    {
+      "name": "falcon-typing",
+      "version>=": "1.0.1"
+    },
+    {
+      "name": "falcon-qarray-device",
+      "version>=": "1.0.1"
+    },
+    {
+      "name": "falcon-database",
+      "version>=": "1.0.8"
+    },
+    {
+      "name": "plplot",
+      "version>=": "5.15.0"
+    },
+    {
+      "name": "pybind11",
+      "version>=": "3.0.0"
+    },
+    {
+      "name": "xtensor",
+      "version>=": "0.25.0"
+    },
+    {
+      "name": "yaml-cpp",
+      "version>=": "0.8.0"
+    },
+    {
+      "name": "spdlog"
+    },
+    {
+      "name": "falcon",
+      "version>=": "1.1.4"
+    }
+  ],
+  "features": {
+    "routine": {
+      "description": "Pull in falcon-routine/falcon-comms/falcon-database for demo variants that drive the instrument hub over NATS rather than the local simulator.",
+      "dependencies": [
+        {
+          "name": "falcon-routine",
+          "version>=": "1.0.7"
+        },
+        {
+          "name": "falcon-comms",
+          "version>=": "1.0.11"
+        }
+      ]
+    }
+  },
+  "builtin-baseline": "9942fb5f996ea431c5ed8fb8d2a53f31d08df62e",
+  "overrides": [
+    {
+      "name": "xtensor",
+      "version": "0.25.0"
+    },
+    {
+      "name": "xtl",
+      "version": "0.7.5"
+    },
+    {
+      "name": "libpqxx",
+      "version": "7.10.5"
+    }
+  ]
+}

@@ -1,14 +1,14 @@
 import (
-"../../../libs/testing/testing.fal"
-"../../../libs/database/database.fal"
-"../../../libs/strings/strings.fal"
-"../../../libs/collections/array/array.fal"
-"../../../libs/collections/map/map.fal"
-"../../../libs/falconCore/generic/farray/farray.fal"
-"../../../libs/falconCore/physics/units/symbolUnit/symbolUnit.fal"
-"../../../libs/falconCore/communications/voltageStates/deviceVoltageStates/deviceVoltageStates.fal"
-"../../../libs/falconCore/physics/deviceStructures/connections/connections.fal"
-"../../../libs/falconCore/communications/voltageStates/deviceVoltageStates/deviceVoltageStates.fal"
+"libs/testing/testing.fal"
+"libs/database/database.fal"
+"libs/strings/strings.fal"
+"libs/collections/array/array.fal"
+"libs/collections/map/map.fal"
+"libs/falconCore/generic/farray/farray.fal"
+"libs/falconCore/physics/units/symbolUnit/symbolUnit.fal"
+"libs/falconCore/communications/voltageStates/deviceVoltageStates/deviceVoltageStates.fal"
+"libs/falconCore/physics/deviceStructures/connections/connections.fal"
+"libs/falconCore/communications/voltageStates/deviceVoltageStates/deviceVoltageStates.fal"
 "../hub.fal"
 "../chargeConfigurationTuner.fal"
 )
@@ -22,7 +22,7 @@ autotuner FirstTest -> (int passed, int failed) {
 
     state test_Charge1AndCharge2(TestRunner runner, TestContext t) {
         // Call our yaml file
-        hub::RestartDevice("../2_dot.yml");
+        hub::RestartDevice("2_dot.yml");
         // Reset the database
         database::InitializeSchema();
         database::ClearAll();
@@ -31,7 +31,7 @@ autotuner FirstTest -> (int passed, int failed) {
         // Set the global variables for the autotuning 
         // 1. Build a virtualization matrix 
         farray::FArray virtualization;
-        virtualization = hub::BuildVirtualizationMatrix("../2_dot.yml");
+        virtualization = hub::BuildVirtualizationMatrix("2_dot.yml");
         database::DeviceCharacteristic dcharVirtualization;
         dcharVirtualization = database::DeviceCharacteristic.New()
             .SetScope("device")

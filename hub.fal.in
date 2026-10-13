@@ -1,0 +1,58 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// GENERATED FILE — edit hub.fal.in, then re-run `make configure`.
+//
+// The `ffimport` flag lists below are the demo's entire native build
+// configuration: the falcon DSL toolchain passes them verbatim to the compiler
+// and linker when it builds qarray-wrapper.cpp. CMake fills them in from this
+// repo's own vcpkg_installed tree (populated by `make vcpkg-bootstrap`), so the
+// demo does not depend on any sibling checkout being built or on a prior
+// `make install` into /opt/falcon.
+// ─────────────────────────────────────────────────────────────────────────────
+import (
+  "libs/falconCore/communications/voltageStates/deviceVoltageStates/deviceVoltageStates.fal"
+  "libs/collections/map/map.fal"
+  "libs/collections/array/array.fal"
+  "libs/falconCore/math/quantity/quantity.fal"
+  "libs/falconCore/math/point/point.fal"
+  "libs/falconCore/physics/deviceStructures/connection/connection.fal"
+  "libs/falconCore/physics/deviceStructures/connections/connections.fal"
+  "libs/falconCore/generic/farray/farray.fal"
+)
+ffimport "qarray-wrapper.cpp" (
+  "-std=c++20"
+  "-I@VCPKG_TREE@/include"
+  "-I@PYTHON_INCLUDE_DIR@"
+) (
+  "-L@VCPKG_TREE@/lib"
+  "-L@PYTHON_LIBRARY_DIR@"
+  "-lfalcon-core"
+  "-lfalcon-typing"
+  "-lfalcon-qarray-device"
+  "-lplplotcxx"
+  "-lplplot"
+  "-lyaml-cpp"
+  "-lspdlog"
+  "-lfmt"
+  "-lm"
+  "-lpthread"
+  "-ldl"
+  "-l@PYTHON_LINK_NAME@"
+)
+// Collects the current device gate voltages
+routine CollectCurrentDeviceState() -> (deviceVoltageStates::DeviceVoltageStates dstates)
+// Collects the current plunger gates 
+routine CollectCurrentPlungerGates() -> (array::Array<connection::Connection> gates)
+// Ramps the device to the supplied end voltage 
+routine Ramp(map::Map<connection::Connection, quantity::Quantity> stop) -> ()
+// Analyze if a blip is there or not
+routine AnalyzeBlips(map::Map<connection::Connection, quantity::Quantity> begin, map::Map<connection::Connection, quantity::Quantity> stop, int resolution) -> (int num_blips, array::Array<deviceVoltageStates::DeviceVoltageStates> locations)
+// Calculates a device state given a virtualization matrix, spacing in a direction
+routine EndState(connection::Connection direction, quantity::Quantity spacing, farray::FArray virtualization, connections::Connections virtualNames) -> (point::Point endstate)
+
+// Testing functionality
+// Allows restarting of the qarray simlator from the tester
+routine RestartDevice(string configPath) -> ()
+// Makes a stablity diagram plot of the device 
+routine MakeStabilityDiagram(string outputFilepath, float minx, float maxx, float miny, float maxy) -> ()
+// Builds a virtualization matrix for the device given a set of plunger gates and a set of virtual gates
+routine BuildVirtualizationMatrix(string configPath) -> (farray::FArray virtualization)

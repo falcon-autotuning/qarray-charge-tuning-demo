@@ -1,0 +1,23 @@
+Fix a botched find-replace in the installed CMake config package.
+
+v1.0.1 ships `find_dependency(pybifind_dependencyCONFIG REQUIRED)` — the string
+"nd11 " was replaced with "find_dependency", turning "pybind11 CONFIG" into
+"pybifind_dependencyCONFIG". Any consumer calling find_package(falcon-qarray-device)
+fails with "Could not find a package configuration file provided by
+pybifind_dependencyCONFIG".
+
+Remove this patch once the fix is released upstream.
+
+diff --git a/cmake/falcon-qarray-device-config.cmake.in b/cmake/falcon-qarray-device-config.cmake.in
+index 1111111..2222222 100644
+--- a/cmake/falcon-qarray-device-config.cmake.in
++++ b/cmake/falcon-qarray-device-config.cmake.in
+@@ -3,7 +3,7 @@
+ include(CMakeFindDependencyMacro)
+ 
+ find_dependency(Python3 COMPONENTS Interpreter Development REQUIRED)
+-find_dependency(pybifind_dependencyCONFIG REQUIRED)
++find_dependency(pybind11 CONFIG REQUIRED)
+ 
+ include("${CMAKE_CURRENT_LIST_DIR}/falcon-qarray-device-targets.cmake")
+ 

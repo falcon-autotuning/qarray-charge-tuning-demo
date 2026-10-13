@@ -1,11 +1,9 @@
 name: charge-configuration-tuner-demo
-version: "1.0.0"
-maintainer: "falcon-devs"
-github: ""
+version: 1.0.0
+maintainer: falcon-devs
+github: https://github.com/falcon-autotuning/qarray-charge-tuning-demo
+license: ""
+ffi:
+  qarray-wrapper.so: sha256:135e33fc7b01c1a0d872ba8b4837a37eadec66fd68bc8c78d2b0f9ee6a5f186f
 dependencies:
-  - name: deviceVoltageStates
-    version: "1.0.0"
-    local_path: "../../libs/falconCore/communications/voltageStates/deviceVoltageStates/"
-  - name: map
-    version: "1.0.0"
-    local_path: "../../libs/collections/map/"
+  []

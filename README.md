@@ -15,23 +15,56 @@ This demo demonstrates QArray charge tuning using FAlCon, leveraging a device ch
 ### Prerequisites
 
 - Linux or WSL
-- Docker
-- FAlCon libraries installed at `/opt/falcon/lib`
+- A C++20 compiler. The clang presets pin **clang-18** (`clang-18`/`clang++-18`);
+  plain `clang` on Ubuntu 22.04 is 14.0.0 and fails on libstdc++ 13's `<chrono>`.
+  Use `PRESET=linux-gcc-release` for gcc.
+- **`clang-scan-deps-18`** (`sudo apt install clang-tools-18`). CMake 4.x enables
+  C++20 module dependency scanning for `falcon-typing`, `falcon-dsl` and
+  `falcon-package-manager`; without it every `try_compile` exits 127 and the error
+  you actually see is `Could NOT find Threads`, which points nowhere near the cause.
+- CMake ≥ 3.20, Ninja, and Git
+- [`uv`](https://docs.astral.sh/uv/) — used to provision the Python 3.12 interpreter the simulator runs on
+- Docker (for the PostgreSQL global-variable store)
+- Mono (`mono-complete`) — only if you want the NuGet binary cache, see below
+
+> **If `/tmp` is mounted `noexec`** (check with `findmnt -no OPTIONS /tmp`), vcpkg
+> cannot execute the helper tools it extracts there and fails with a bare
+> `Permission denied`. The Makefile detects this and redirects `TMPDIR` to a
+> project-local `.tmp/` for the vcpkg stage.
+
+Everything else — falcon-core, falcon-typing, falcon-qarray-device, **falcon-dsl**
+(the `falcon-run` / `falcon-test` CLIs), **falcon** (the `.fal` standard library),
+falcon-package-manager, plplot, pybind11, xtensor, yaml-cpp, spdlog — is built into
+this repo's own `vcpkg_installed/` tree by `make`. There is no dependency on a
+system-wide `/opt/falcon` install, and none on any sibling repository being checked
+out or built.
+
+`/opt/falcon` exists upstream only because the `falcon` repo's CMakeLists is a CPack
+aggregate that copies `vcpkg_installed/{bin,lib,include,share}` into that prefix and
+tars it up. Building the same components as ports puts them in `vcpkg_installed/`
+directly, so that staging step is simply not needed here.
 
 ### Installing Docker
 
-Here are installation instructions for a few common linux distributions. For other distributions, please refer to the official [Docker documentation](https://docs.docker.com/desktop/setup/install/linux/).
+Only the `make docker-*` targets need Docker; `make build` and `make test` do not.
+
+Install Docker Engine **and** Compose. Compose v2 is a `docker` subcommand
+(`docker compose`); the old standalone `docker-compose` binary reached end-of-life
+in 2023 and is no longer packaged by current distributions — installing it by that
+name is what produces `make: docker-compose: No such file or directory`. The
+Makefile accepts either, preferring v2.
+
 **Ubuntu/Debian:**
 
 ```sh
 sudo apt update
-sudo apt install docker.io docker-compose
+sudo apt install docker.io docker-compose-v2
 ```
 
 **Fedora:**
 
 ```sh
-sudo dnf install docker docker-compose
+sudo dnf install docker docker-compose-plugin
 ```
 
 **Arch Linux:**
@@ -40,37 +73,127 @@ sudo dnf install docker docker-compose
 sudo pacman -S docker docker-compose
 ```
 
-Depending on your system you may need to log out and log back in to get Docker fully setup on your system.
+For other distributions see the official [Docker documentation](https://docs.docker.com/engine/install/). Verify with:
 
-### Environment Setup
+```sh
+docker compose version
+```
 
-Set the required environment variables before running the demo:
+Depending on your system you may need to log out and log back in for your Docker group membership to take effect.
+
+### Building
+
+The demo follows the same build layout as `instrument-controller`: a vcpkg
+manifest (`vcpkg.json`), overlay ports (`ports/`), overlay triplets, and CMake
+presets, all driven from the `Makefile`.
 
 ```bash
-export PATH="/opt/falcon/lib:$PATH"
-export LD_LIBRARY_PATH="/opt/falcon/lib:$LD_LIBRARY_PATH"
-export PKG_CONFIG_PATH="/opt/falcon/lib/pkgconfig:$PKG_CONFIG_PATH"
+git submodule update --init --recursive   # pulls cmake/bootstrap
+make build                                # venv -> vcpkg -> cmake -> compile
 ```
+
+`make build` runs three stages, each usable on its own:
+
+| Target | What it does |
+|---|---|
+| `make venv-setup` | Creates `./venv` (Python 3.12 via `uv`) and installs `qarray` into it |
+| `make vcpkg-bootstrap` | Clones vcpkg + triplets, wires up the NuGet binary cache, installs every port from `vcpkg.json` into `./vcpkg_installed` |
+| `make configure` / `make build` | Configures and compiles `qarray-wrapper.cpp` into `libqarray-wrapper.so` |
+
+Other targets: `make test`, `make install`, `make clean`, `make venv-reset`,
+and `make help`. Override the toolchain with `PRESET=`, e.g.
+`make build PRESET=linux-gcc-release`.
+
+#### Why the venv comes first
+
+`falcon-qarray-device` embeds CPython through `pybind11::embed` and imports the
+`qarray` package at runtime. It therefore has to be *built* against the same
+interpreter that has `qarray` installed. The `Makefile` exports
+`FALCON_QARRAY_PYTHON` pointing at `./venv/bin/python`; the
+`ports/falcon-qarray-device` portfile reads it and pins cmake's `FindPython3` to
+that interpreter. Building the port without it will produce a library whose
+embedded interpreter cannot find `qarray`.
+
+#### NuGet binary cache (optional)
+
+`make vcpkg-bootstrap` reads `.nuget-credentials` (gitignored) and, if present,
+configures the shared Azure DevOps `cpp-cache` feed as a vcpkg binary source, so
+ports come down prebuilt instead of compiling from source. The file is four
+`KEY=VALUE` lines — `FEED_URL`, `NUGET_API_KEY`, `FEED_NAME`, `USERNAME` — the
+same format `instrument-controller` uses; copy it from there. Without it the
+build still works, it just compiles everything locally.
+
+### Generated files
+
+`make configure` generates two files from checked-in templates. Do not edit the
+generated copies — they are overwritten on every configure:
+
+- **`hub.fal`** (from `hub.fal.in`) — its `ffimport` block is the demo's entire
+  native build configuration, since the DSL toolchain compiles
+  `qarray-wrapper.cpp` itself from those literal `-I`/`-L`/`-l` flags. CMake
+  fills in the absolute paths to `vcpkg_installed/` and to the venv's Python, so
+  they cannot drift from what was actually built.
+- **`build/<preset>/env.sh`** — exports `LD_LIBRARY_PATH`, `PLPLOT_LIB`,
+  `FALCON_QARRAY_PYTHON_PATH` (where the port installed `device.py`) and
+  `QARRAY_CONFIG_PATH`.
 
 ### Database Setup
 
 Ensure PostgreSQL is running and configure the Falcon test database:
 
 ```bash
-export TEST_DATABASE_URL="postgresql://falcon_test:falcon_test_password@127.0.0.1:5432/falcon_test"
+make docker-up
+```
+
+The `falcon-database` stdlib package reads the connection string from
+`FALCON_DATABASE_URL`, and `database::InitializeSchema()` fails if it is unset.
+`env.sh` already defaults it to the credentials in `docker-compose.test.yml`, so
+nothing more is needed for the local container. To target a different server,
+export your own value before sourcing `env.sh`:
+
+```bash
+export FALCON_DATABASE_URL="postgresql://user:password@host:5432/dbname"
 ```
 
 ### Running the Demo
 
-Clone the repository and navigate to the demo directory:
+Source the generated environment, then run the test suite with the `falcon-test`
+CLI from [falcon-dsl](https://github.com/falcon-autotuning/falcon-dsl):
 
 ```bash
-cd demos/qarray-charge-tuning
+make build
 make docker-up
+. build/linux-clang-release/env.sh
 falcon-test ./tests/run_tests.fal --log-level info
 ```
 
 - Adjust `--log-level` for desired verbosity (`info`, `debug`, etc.).
+
+The `.fal` layer needs the DSL toolchain and standard library, both of which are
+now vcpkg ports in this repo — `falcon-dsl` (the `falcon-run` / `falcon-test` CLIs,
+installed to `tools/falcon-dsl/`) and `falcon` (the `.fal` standard library,
+installed to `share/falcon/libs/`). `make build` provides both, and
+`build/<preset>/env.sh` puts the CLIs on `PATH` and exports
+`FALCON_LIBRARY_PATH=<vcpkg-tree>/share/falcon`.
+
+Imports are written **without** a leading `../`:
+
+```
+"libs/collections/map/map.fal"
+```
+
+This is required, not cosmetic. `PackageResolver::resolve()` short-circuits on `./`
+and `../` prefixes and resolves those against the importing file only — a relative
+import never reaches `FALCON_LIBRARY_PATH`. Bare paths fall through to the search
+path, where falcon-package-manager discovers every directory containing a
+`falcon.yml` (53 of them in the standard library).
+
+Imports of the demo's *own* files stay relative (`"../hub.fal"`), since they are
+not packages on the search path.
+
+> The C++ half has no such dependency: `make build` and `make test` work standalone
+> in this repo, and are what verify the wrapper against current FALCON.
+
 
 ## Expected Output
 

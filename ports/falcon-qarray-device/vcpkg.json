@@ -1,0 +1,19 @@
+{
+  "name": "falcon-qarray-device",
+  "version": "1.0.1",
+  "description": "C++ binding to the qarray Python quantum-dot simulator, embedded via pybind11.",
+  "homepage": "https://github.com/falcon-autotuning/falcon-qarray-device",
+  "license": "MPL-2.0",
+  "dependencies": [
+    {
+      "name": "vcpkg-cmake"
+    },
+    {
+      "name": "vcpkg-cmake-config"
+    },
+    {
+      "name": "pybind11",
+      "version>=": "3.0.0"
+    }
+  ]
+}

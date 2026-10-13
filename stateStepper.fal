@@ -1,13 +1,13 @@
 import (
 "./hub.fal"
-"../../libs/database/database.fal"
-"../../libs/strings/strings.fal"
-"../../libs/log/log.fal"
-"../../libs/falconCore/generic/farray/farray.fal"
-"../../libs/falconCore/physics/deviceStructures/connections/connections.fal"
-"../../libs/falconCore/communications/voltageStates/deviceVoltageStates/deviceVoltageStates.fal"
-"../../libs/falconCore/math/point/point.fal"
-"../../libs/falconCore/math/vector/vector.fal"
+"libs/database/database.fal"
+"libs/strings/strings.fal"
+"libs/log/log.fal"
+"libs/falconCore/generic/farray/farray.fal"
+"libs/falconCore/physics/deviceStructures/connections/connections.fal"
+"libs/falconCore/communications/voltageStates/deviceVoltageStates/deviceVoltageStates.fal"
+"libs/falconCore/math/point/point.fal"
+"libs/falconCore/math/vector/vector.fal"
 )
 // direction indicates the direction to travel for the cell center, either up or right
 autotuner BlipStateStepper (Connection direction) -> (Error err) {

@@ -1,6 +1,6 @@
 import (
 "./stateStepper.fal" 
-"../../libs/falconCore/communications/voltageStates/deviceVoltageStates/deviceVoltageStates.fal" 
+"libs/falconCore/communications/voltageStates/deviceVoltageStates/deviceVoltageStates.fal" 
 "./hub.fal"
 )
 // (n,m) indicates the x,y axis count
