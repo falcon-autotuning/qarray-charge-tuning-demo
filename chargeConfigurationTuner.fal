@@ -4,8 +4,6 @@ import (
 "./hub.fal"
 )
 
-
-
 // TODO: read from spec the virtualized axis parameters for the gate 
 routine GetVirtualizedAxis(deviceVoltageStates states, Gate gate) -> (ControlAxis axis)
 
@@ -270,10 +268,13 @@ autotuner SingleElectronTuner() -> (Error err) {
                 chargingEnergySearchCount * energy.Energy()
             )
         }
-        -> loadElectron(iter, cone);
+        -> computeLocation(iter, cone);
     }
-    state loadElectron (Iterator<Dot> iter, BlipCone cone) {
+    state computeLocation (Iterator<Dot> iter, BlipCone cone) {
         Point location = ComputeLocation(cone, chargingEnergySearchCount);
+        -> loadElectron(iter, cone, location);
+    }
+    state loadElectron (Iterator<Dot> iter, BlipCone cone, Point location) {
         DomainAxis domain = DomainAxis.New(CurrentVoltageState(), location);
         Ramp(domain);
         if (iter.Increment()) {
