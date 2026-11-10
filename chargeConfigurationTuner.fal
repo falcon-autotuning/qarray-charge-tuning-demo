@@ -223,11 +223,13 @@ routine Ramp (DomainAxis axis) -> ()
 autotuner SingleElectronTuner() -> (Error err) {
     err = nil;
     float chargingEnergySearchCount = 2.0;
-
     start -> bootstrap;
     state bootstrap {
-        Array<Dot> chargingEnergies = QueryChargingEnergies(GetPlungerGates());
-        Iterator<Dot> chargingEnergyIter = Iterator.New(chargingEnergies);
+        Iterator<Dot> chargingEnergyIter = Iterator.New(
+            QueryChargingEnergies(
+                GetPlungerGates()
+            )
+        );
         -> characterizeEnergySpectra(chargingEnergies);
     }
     state characterizeEnergySpectra (Iterator<Dot> iter) {
@@ -268,10 +270,10 @@ autotuner SingleElectronTuner() -> (Error err) {
                 chargingEnergySearchCount * energy.Energy()
             )
         }
-        Point location = ComputeLocation(cone, chargingEnergySearchCount);
-        -> loadElectron(iter, location);
+        -> loadElectron(iter, cone);
     }
-    state loadElectron (Iterator<Dot> iter, Point location) {
+    state loadElectron (Iterator<Dot> iter, BlipCone cone) {
+        Point location = ComputeLocation(cone, chargingEnergySearchCount);
         DomainAxis domain = DomainAxis.New(CurrentVoltageState(), location);
         Ramp(domain);
         if (iter.Increment()) {
@@ -280,12 +282,6 @@ autotuner SingleElectronTuner() -> (Error err) {
         else {
             terminal;
         }
-    }
-    state crash (Iterator<Dot> iter) {
-        Dot energy= iter.Evaluate();
-        Connection conn = energy.Gate();
-        err = Error.New(strings::Concat("Failed to load an electron for gate ",conn.Name());
-        terminal;
     }
 }
 
