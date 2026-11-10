@@ -4,12 +4,11 @@ import (
 "./hub.fal"
 )
 
-// TODO: read from spec the virtualized axis parameters for the gate 
-routine GetVirtualizedAxis(deviceVoltageStates states, Gate gate) -> (ControlAxis axis)
 
 struct Dot {
     Connection _gate;
     Voltage _energy;
+    Direction _virtualizationAxis;
     routine New(Connection gate, Voltage energy) -> (Dot e){
         e._gate = gate;
         e._energy = energy;
@@ -24,6 +23,10 @@ struct Dot {
         energy = this._energy;
     }
 }
+
+// TODO: read from spec the virtualized axis parameters for the gate 
+routine GetVirtualizedAxis(Iterator<Dot> iter, deviceVoltageStates states) -> (ControlAxis axis)
+    // This needs to read the energy from the iters and the current state
 
 routine ComputeRotationPlanes(
     Iterator<Dot> iter
@@ -82,6 +85,10 @@ struct BlipConeRay {
     routine Blips() -> (Array<Point> blips) {
         blips = this._blips;
     }
+
+    routine CountBlips() -> (int count) {
+        count = _blips.Size();
+    }
 }
 
 
@@ -130,8 +137,10 @@ struct BlipConePair {
 
     routine Characterize(
         Point tip,
-        Voltage extent
-    ) -> () {
+        Voltage extent,
+        int properBlipCount
+    ) -> (bool valid) {
+        valid = true;
         this.SetFirstBlips(
             CharacterizeRay(
                 this.FirstRay(),
@@ -139,14 +148,23 @@ struct BlipConePair {
                 extent
             )
         );
+        BlipConeRay first = this.FirstRay();
+        if (first.CountBlips() == properBlipCount) {
+            this.SetSecondBlips(
+                CharacterizeRay(
+                    this.SecondRay(),
+                    tip,
+                    extent
+                )
+            );
+            BlipConeRay second= this.SecondRay();
+            if (second.CountBlips() == properBlipCount) {
+                valid = false;
+            }
+        } else {
+            valid = false;
+        }
 
-        this.SetSecondBlips(
-            CharacterizeRay(
-                this.SecondRay(),
-                tip,
-                extent
-            )
-        );
     }
 }
 
@@ -204,7 +222,7 @@ struct BlipCone {
 // TODO: compute the location gate voltage location of <1,...,1,0,...,0>  state
 // Need to floor the surfaceCount since it needs to be an int to make sense 
 // The found location can improve previous electron positioning in the case of 3D cone
-routine ComputeLocation(BlipCone cone, float surfaceCount) -> (Point location)
+routine ComputeLocation(Iterator<Dot> iter, Point currentState) -> (DomainAxis domain)
 
 
 // TODO: ramp the device following the DomainAxis
@@ -232,7 +250,7 @@ autotuner SingleElectronTuner() -> (Error err) {
     }
     state characterizeEnergySpectra (Iterator<Dot> iter) {
         Dot energy= iter.Evaluate();
-        ControlAxis axis = GetVirtualizedAxis(CurrentVoltageState(), energy.Gate()); 
+        ControlAxis axis = GetVirtualizedAxis(iter, CurrentVoltageState()); 
         BlipConeRay ray = BlipConeRay.New(axis);
         ray.SetBlips( 
             CharacterizeRay(
@@ -245,7 +263,10 @@ autotuner SingleElectronTuner() -> (Error err) {
         if (blips.Size()<= 1) {
             energy.UpdateEnergy(1.5*distance);
             -> characterizeEnergySpectra(iter);
-        } else {
+        } elif (blips.Size() > 2) {
+            energy.UpdateEnergy(blips[1]- blips[0]);
+            -> characterizeEnergySpectra(iter);
+        } else { // Force 2 blips
             energy.UpdateEnergy(blips[1]- blips[0]);
             Array<Gate> firstPlane;
             Array<Gate> secondPlane;
@@ -257,25 +278,32 @@ autotuner SingleElectronTuner() -> (Error err) {
     state estimateVirtualizationCoefficient (Iterator<Dot> iter, BlipCone cone) {
         Dot energy = iter.Evaluate();
         BlipConePair first = cone.FirstPair();
-        first.Characterize(
+        bool firstIsValid = first.Characterize(
             cone.Tip(),
-            chargingEnergySearchCount * energy.Energy()
+            chargingEnergySearchCount * energy.Energy(),
+            2
         );
+        if (!firstIsValid) {
+            -> failBlips(iter, first);
+        }
         if (iter.HasPrevious()) {
             BlipConePair second = cone.SecondPair();
-            second.Characterize(
+            bool secondIsValid = second.Characterize(
                 cone.Tip(),
-                chargingEnergySearchCount * energy.Energy()
-            )
+                chargingEnergySearchCount * energy.Energy(),
+                2
+            );
+            if (!secondIsValid) {
+                -> failBlips(iter, second);
+            }
         }
-        -> computeLocation(iter, cone);
+        Dot energy = iter.Evaluate();
+        energy.UpdateEnergy(); // TODO:
+        iter.UpdatePreviousDirection(); // TODO:
+        -> loadElectron(iter);
     }
-    state computeLocation (Iterator<Dot> iter, BlipCone cone) {
-        Point location = ComputeLocation(cone, chargingEnergySearchCount);
-        -> loadElectron(iter, cone, location);
-    }
-    state loadElectron (Iterator<Dot> iter, BlipCone cone, Point location) {
-        DomainAxis domain = DomainAxis.New(CurrentVoltageState(), location);
+    state loadElectron (Iterator<Dot> iter) {
+        DomainAxis domain = ComputeLocation(iter, CurrentVoltageState());
         Ramp(domain);
         if (iter.Increment()) {
             -> characterizeEnergySpectra(iter);
@@ -283,6 +311,17 @@ autotuner SingleElectronTuner() -> (Error err) {
         else {
             terminal;
         }
+    }
+    state failBlips (Iterator<Dot> iter, BlipConePair pair) {
+        Dot energy = iter.Evaluate();
+        Gate conn= energy.Gate();
+        Array<string> args = Array.New();
+        args.PushBack(conn.Name());
+        BlipConeRay first = pair.FirstRay();
+        args.PushBack(string::FromInt(first.CountBlips()));
+        BlipConeRay second= pair.SecondRay();
+        args.PushBack(string::FromInt(second.CountBlips()));
+        err = Error.New(string::Format("failed to detect atleast two blips on gate {} and found number of blips on left ray: {} and found number of blips on right ray: {}", args));
     }
 }
 
