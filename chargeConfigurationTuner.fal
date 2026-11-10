@@ -209,6 +209,9 @@ struct BlipCone {
 routine ComputeLocation(BlipCone cone, float surfaceCount) -> (Point location)
 
 
+// TODO: ramp the device following the DomainAxis
+routine Ramp (DomainAxis axis) -> ()
+
 // The device has had some minor characterizations of charging energies due to previous Coulomb blockade measurements
 // The starting point is approximately 0.25 to 0.75 charging energies in front of the first blip for all dots in the array
 // The ending point is approximately 0.25 to 0.75 charging energies after the charging energy of the first blip for all dots in the array
