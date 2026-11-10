@@ -3,41 +3,216 @@ import (
 "libs/falconCore/communications/voltageStates/deviceVoltageStates/deviceVoltageStates.fal" 
 "./hub.fal"
 )
-// (n,m) indicates the x,y axis count
-autotuner ChargeConfigurationTuner (int n, int m) -> (deviceVoltageStates::DeviceVoltageStates dstates, Error err) {
-    // this autotuner starts the device tuned at (0,0)
-    int current_n=0;
-    int current_m=0;
+
+struct DotChargingEnergy {
+    Connection _gate;
+    Voltage _energy;
+    routine New(Connection gate, Voltage energy) -> (DotChargingEnergy e){
+        e._gate = gate;
+        e._energy = energy;
+    }
+    routine UpdateEnergy(Voltage energy) -> () {
+        e._energy = energy;
+    }
+    routine Gate() -> (Connection gate) {
+        gate = this._gate;
+    }
+    routine Energy() -> (Voltage energy) {
+        energy = this._energy;
+    }
+}
+
+// Defines a surface of co-located blips
+struct BlipSurface {
+    // TODO: implement
+
+}
+
+// Defines a line of co-located blips
+struct BlipLine {
+    // TODO: implement
+}
+
+struct BlipConeRay {
+    ControlAxis _ray;
+    Array<Point> _blips;
+
+    routine New(ControlAxis ray) -> (BlipConeRay coneray) {
+        coneray._ray = ray;
+        coneray._blips = Array.New();
+    }
+
+    routine Ray() -> (ControlAxis ray) {
+        ray = this._ray;
+    }
+
+    routine SetBlips(Array<Point> blips) -> () {
+        this._blips = blips;
+    }
+
+    routine Blips() -> (Array<Point> blips) {
+        blips = this._blips;
+    }
+}
+
+struct BlipConePair {
+    BlipConeRay _first;
+    BlipConeRay _second;
+
+    // TODO: New creates proper controlAxis for each ray
+    routine New(float theta, BlipConeRay principalAxis, Array<Gate> planeOfRotation) -> (BlipConePair cone)
+    // Does rotation and extension to principalAxis surface
+
+    routine FirstRay () -> (BlipConeRay first) {
+        first = this._first;
+    }
+
+    routine SecondRay () -> (BlipConeRay second) {
+        second = this._second;
+    }
+
+    routine SetFirstBlips (Array<Point> blips) -> () {
+        _first.SetBlips(blips);
+    }
+
+    routine SetSecondBlips (Array<Point> blips) -> () {
+        _second.SetBlips(blips);
+    }
+}
+
+// BlipCone contains all the blips measured in the cone geometry
+struct BlipCone {
+    BlipConeRay _principle;
+    BlipConePair _first;
+    BlipConePair _second;
+
+    // New creates proper controlAxis for each ray
+    routine New(float theta, BlipConeRay principalAxis, Array<Gate> firstPlaneOfRotation, Array<Gate> secondPlaneOfRotation) -> (BlipCone cone) {
+        cone._principle = principalAxis;
+        cone._first = BlipConePair.New(theta, principalAxis,firstPlaneOfRotation); 
+        cone._second = BlipConePair.New(theta, principalAxis,secondPlaneOfRotation); 
+    }
+
+    routine PrincipalAxis() -> (Array<Point> axis) {
+        axis = this._principalAxis;
+    }
+
+    routine Tip() -> (Point tip) {
+        tip = _principle.Offset();
+    }
+    
+    routine Axis() -> (Direction axis) {
+        axis = _principle.Direction();
+    }
+
+    routine FirstPair () -> (BlipConePair first) {
+        first = this._first;
+    }
+
+    routine SetFirstAxisOfFirstBlipConePair(Array<Point> blips) -> () {
+        _first.SetFirstBlips(blips);
+    }
+
+    routine SetSecondAxisOfFirstBlipConePair(Array<Point> blips) -> () {
+        _first.SetSecondBlips(blips);
+    }
+
+    routine SecondPair () -> (BlipConePair second) {
+        second = this._second;
+    }
+
+    routine SetFirstAxisOfSecondBlipConePair(Array<Point> blips) -> () {
+        _second.SetFirstBlips(blips);
+    }
+
+    routine SetSecondAxisOfSecondBlipConePair(Array<Point> blips) -> () {
+        _second.SetSecondBlips(blips);
+    }
+
+}
+
+// The device has had some minor characterizations of charging energies due to previous Coulomb blockade measurements
+// The starting point is approximately 0.25 to 0.75 charging energies in front of the first blip for all dots in the array
+// The ending point is approximately 0.25 to 0.75 charging energies after the charging energy of the first blip for all dots in the array
+// Assuming an SNR >= 4 for coulomb blockade from the environment
+// We assume barriers are ignored and completely virtualized
+// Assume only nearest neigboring plunger gate interactions
+// Assume that virtual sweep axis are parallel enough to real sweep axes such that ... 
+// Assume that the neigboring dots coupling is ... such that once placed in the center of a coulomb blockade window any coupling won't take it out
+autotuner SingleElectronTuner() -> (Error err) {
     err = nil;
-    // the gate corresponding to the up direction of the stability diagram
-    Connection up = hub::CollectCurrentPlungerGates()[0];
-    // the gate corresponding to the right direction of the stability diagram
-    Connection right = hub::CollectCurrentPlungerGates()[1];
-    // this direction must be a connection
-    Connection startingDirection = up;
-    start -> tuning (startingDirection);
-    state tuning (Connection direction) {
-        err = stateStepper::BlipStateStepper(direction);
-        if (err != nil) {
-            log::Err("The Blip State Stepper has broken");
-            terminal;
-        }
-        if (direction == up) {
-            current_n = current_n + 1;
-            if (current_n < n) {
-                -> tuning(up);
-            } else {
-                -> tuning(right);
-            }
+    Array<DotChargingEnergy> chargingEnergies = Array.New(); 
+    QueryChargingEnergies(chargingEnergies, GetPlungerGates());
+    Iterator<DotChargingEnergy> chargingEnergyIter = Iterator.New(chargingEnergies);
+    start -> characterizeEnergySpectra (chargingEnergyIter);
+    state characterizeEnergySpectra (Iterator<DotChargingEnergy> iter) {
+        DotChargingEnergy energy= iter.Evaluate();
+        ControlAxis axis = GetVirtualizedAxis(CurrentVoltageState(), energy.Gate()); 
+        Point tip = axis.ToPoint(Voltage.New(0));
+        Point end = axis.ToPoint(2 * energy.Energy()); 
+        DomainAxis domain = DomainAxis.New(tip, end);
+        // Assume BlipFinder ramps back to tip after
+        Array<Point> blips = BlipFinder(domain);
+        if (blips.Size()<= 1) {
+            energy.UpdateEnergy(1.5*distance);
+            -> characterizeEnergySpectra(iter);
         } else {
-            current_m = current_m + 1;
-            if (current_m < m) {
-                -> tuning(right);
-            } else {
-                dstates = hub::CollectCurrentDeviceState();
-                terminal;
-            }
+            energy.UpdateEnergy(blips[1]- blips[0]);
+            // TODO: compute first and second Plane of rotation
+            BlipCone cone = BlipCone.New(theta, BlipConeRay.New(axis, blips), firstPlane, secondPlane);
+            -> estimateVirtualizationCoefficient(iter, cone);
         }
     } 
+    state estimateVirtualizationCoefficient (Iterator<DotChargingEnergy> iter, BlipCone cone) {
+        Point location;
+        // First do North ray
+        BlipConePair first= cone.FirstPair();
+        BlipConeRay north = first.FirstRay();
+        Point northEnd = north.ToPoint(2 * energy.Energy());
+        DomainAxis northDomain= DomainAxis.New(cone.Tip(), northEnd);
+        cone.SetFirstAxisOfFirstBlipConePair(BlipFinder(northDomain));
+        // Then do South ray 
+        BlipConeRay south= first.SecondRay();
+        Point southEnd = south.ToPoint(2 * energy.Energy());
+        DomainAxis southDomain= DomainAxis.New(cone.Tip(), southEnd);
+        cone.SetSecondAxisOfFirstBlipConePair(BlipFinder(southDomain));
+        if (iter.HasPrevious()) {
+            // Then do East ray
+            BlipConePair second= cone.SecondPair();
+            BlipConeRay east= second.FirstRay();
+            Point eastEnd = east.ToPoint(2 * energy.Energy());
+            DomainAxis eastDomain= DomainAxis.New(cone.Tip(), eastEnd);
+            cone.SetFirstAxisOfSecondBlipConePair(BlipFinder(eastDomain));
+            // Then do West ray 
+            BlipConeRay west= first.SecondRay();
+            Point westEnd = west.ToPoint(2 * energy.Energy());
+            DomainAxis westDomain= DomainAxis.New(cone.Tip(), westEnd);
+            cone.SetSecondAxisOfSecondBlipConePair(BlipFinder(westDomain));
+            Array<BlipSurface> surfaces= ComputeBlipSurfaces(cone);
+            // TODO: Set location based on BlipSurfaces
+            // TODO: This location improves the previous electron positioning
+        } else {
+            Array<BlipLine> lines = ComputeBlipLines(cone);
+            // TODO: Set location based on BlipLines
+        }
+        -> loadElectron(iter, location);
+    }
+    // The location refers to the <1,...,1,0,...,0> state in gate voltage space in the center of the charge window
+    state loadElectron (Iterator<DotChargingEnergy> iter, Point location) {
+        DomainAxis domain = DomainAxis.New(CurrentVoltageState(), location);
+        Ramp(domain);
+        if (iter.Increment()) {
+            -> characterizeEnergySpectra(iter);
+        }
+        else {
+            terminal;
+        }
+    }
+    state crash (Iterator<DotChargingEnergy> iter) {
+        DotChargingEnergy energy= iter.Evaluate();
+        Connection conn = energy.Gate();
+        err = Error.New(strings::Concat("Failed to load an electron for gate ",conn.Name());
+        terminal;
+    }
 }
 
