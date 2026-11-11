@@ -9,9 +9,10 @@ struct Dot {
     Connection _gate;
     Voltage _energy;
     Direction _virtualizationAxis;
-    routine New(Connection gate, Voltage energy) -> (Dot e){
+    routine New(Connection gate, Voltage energy, Direction dir) -> (Dot e){
         e._gate = gate;
         e._energy = energy;
+        e._virtualizationAxis = dir;
     }
     routine UpdateEnergy(Voltage energy) -> () {
         e._energy = energy;
@@ -22,46 +23,52 @@ struct Dot {
     routine Energy() -> (Voltage energy) {
         energy = this._energy;
     }
+    routine Direction() -> (Direction dir) {
+        dir = this._virtualizationAxis;
+    }
+    routine SetDirection(Direction dir) -> () {
+        this._virtualizationAxis = dir;
+    }
 }
 
-// TODO: read from spec the virtualized axis parameters for the gate 
-routine GetVirtualizedAxis(Iterator<Dot> iter, deviceVoltageStates states) -> (ControlAxis axis)
-    // This needs to read the energy from the iters and the current state
-
-routine ComputeRotationPlanes(
+routine BuildFirstRotationPlane(
     Iterator<Dot> iter
 ) -> (
-    Array<Gate> firstPlane,
-    Array<Gate> secondPlane
+    Array<Gate> plane
 ) {
-    firstPlane = Array.New();
-    secondPlane = Array.New();
-
+    plane = Array.New();
     Dot current = iter.Evaluate();
-
     if (iter.CanLook(1)) {
         Dot next = iter.Look(1);
-        firstPlane.PushBack(
+        plane.PushBack(
             current.Gate()
         );
-        firstPlane.PushBack(
+        plane.PushBack(
             next.Gate()
         );
     }
+}
 
+routine BuildSecondRotationPlane(
+    Iterator<Dot> iter
+) -> (
+    Array<Gate> plane
+) {
+    plane = Array.New();
+    Dot current = iter.Evaluate();
     if (iter.CanLook(-1)) {
         Dot previous = iter.Look(-1);
-        secondPlane.PushBack(
+        plane.PushBack(
             previous.Gate()
         );
-        secondPlane.PushBack(
+        plane.PushBack(
             current.Gate()
         );
     }
 }
 
-// TODO: build this from estimated charging energies from database
-routine QueryChargingEnergies(Array<Gate> gates) -> (Array<Dot> dots)
+// TODO: build this from estimated charging energies and directions from database
+routine QueryInitialVirtualization(Array<Gate> gates) -> (Array<Dot> dots)
 
 struct BlipConeRay {
     ControlAxis _ray;
@@ -92,9 +99,6 @@ struct BlipConeRay {
 }
 
 
-// TODO: implement waveform and analysis. Must ramp back to following inverse path after finding blips
-routine BlipFinder (DomainAxis axis) -> (Array<Point> blips)
-
 routine CharacterizeRay(
     BlipConeRay ray,
     Point tip,
@@ -103,21 +107,31 @@ routine CharacterizeRay(
     Point end = ray.ToPoint(energy);
 
     DomainAxis domain =
-        DomainAxis.New(
+        DomainAxis.New( // TODO: finish
             tip,
             end
         );
 
-    blips = BlipFinder(domain);
+    // TODO: build waveform from DomainAxis
+    // TODO: prepare and submit measurement request
+    // TODO: ramp back to start
+    // TODO: find blips in measurement response
 }
 
 struct BlipConePair {
     BlipConeRay _first;
     BlipConeRay _second;
 
-    // TODO: New creates proper controlAxis for each ray
-    routine New(float theta, BlipConeRay principalAxis, Array<Gate> planeOfRotation) -> (BlipConePair cone)
-    // Does rotation and extension to principalAxis surface
+    routine New(float theta, BlipConeRay principalAxis, Array<Gate> planeOfRotation) -> (BlipConePair cone) {
+        ControlAxis rawRay = principalAxis.Ray();
+        Direction rawDir = rawRay.Direction();
+        Direction firstDirection = rawRay.Copy();
+        firstDirection.Rotate(theta, planeOfRotation);
+        this._first = BlipConeRay.New(ControlAxis.NewFromPointAndDirection(principalAxis.Offset(), firstDirection));
+        Direction secondDirection = rawRay.Copy();
+        secondDirection.Rotate(-1 * theta, planeOfRotation);
+        this._second = BlipConeRay.New(ControlAxis.NewFromPointAndDirection(principalAxis.Offset(), secondDirection));
+    }
 
     routine FirstRay () -> (BlipConeRay first) {
         first = this._first;
@@ -168,56 +182,14 @@ struct BlipConePair {
     }
 }
 
-// BlipCone contains all the blips measured in the cone geometry
-struct BlipCone {
-    BlipConeRay _principle;
-    BlipConePair _first;
-    BlipConePair _second;
+// TODO:difference between planes along normal vector
+routine ComputeCurrentEnergyDifference(BlipConeRay principleAxis, BlipConePair pair, int PlaneCount) -> (Voltage energy)
 
-    // New creates proper controlAxis for each ray
-    routine New(float theta, BlipConeRay principalAxis, Array<Gate> firstPlaneOfRotation, Array<Gate> secondPlaneOfRotation) -> (BlipCone cone) {
-        cone._principle = principalAxis;
-        cone._first = BlipConePair.New(theta, principalAxis,firstPlaneOfRotation); 
-        cone._second = BlipConePair.New(theta, principalAxis,secondPlaneOfRotation); 
-    }
+// TODO: slope of plane along previous dimension
+routine ComputeUpdatedPreviousDirection(BlipConeRay principleAxis, BlipConePair pair, Gate previous) -> (Direction dir)
 
-    routine PrincipalAxis() -> (Array<Point> axis) {
-        axis = this._principalAxis;
-    }
-
-    routine Tip() -> (Point tip) {
-        tip = _principle.Offset();
-    }
-    
-    routine Axis() -> (Direction axis) {
-        axis = _principle.Direction();
-    }
-
-    routine FirstPair () -> (BlipConePair first) {
-        first = this._first;
-    }
-
-    routine SetFirstAxisOfFirstBlipConePair(Array<Point> blips) -> () {
-        _first.SetFirstBlips(blips);
-    }
-
-    routine SetSecondAxisOfFirstBlipConePair(Array<Point> blips) -> () {
-        _first.SetSecondBlips(blips);
-    }
-
-    routine SecondPair () -> (BlipConePair second) {
-        second = this._second;
-    }
-
-    routine SetFirstAxisOfSecondBlipConePair(Array<Point> blips) -> () {
-        _second.SetFirstBlips(blips);
-    }
-
-    routine SetSecondAxisOfSecondBlipConePair(Array<Point> blips) -> () {
-        _second.SetSecondBlips(blips);
-    }
-
-}
+// TODO: slope of plane along next dimension
+routine ComputeUpdatedNextDirection(BlipConeRay principleAxis, BlipConePair pair, Gate next) -> (Direction dir)
 
 // TODO: compute the location gate voltage location of <1,...,1,0,...,0>  state
 // Need to floor the surfaceCount since it needs to be an int to make sense 
@@ -238,68 +210,73 @@ routine Ramp (DomainAxis axis) -> ()
 // Assume that the neigboring dots coupling is ... such that once placed in the center of a coulomb blockade window any coupling won't take it out
 autotuner SingleElectronTuner() -> (Error err) {
     err = nil;
-    float chargingEnergySearchCount = 2.0;
+    int chargingEnergySearchCount = 2;
+    float theta = 3.14159/ 12;
     start -> bootstrap;
     state bootstrap {
-        Iterator<Dot> chargingEnergyIter = Iterator.New(
-            QueryChargingEnergies(
-                GetPlungerGates()
-            )
-        );
+        Iterator<Dot> chargingEnergyIter = Iterator.New(QueryInitialVirtualization(GetPlungerGates()));
         -> characterizeEnergySpectra(chargingEnergies);
     }
     state characterizeEnergySpectra (Iterator<Dot> iter) {
-        Dot energy= iter.Evaluate();
-        ControlAxis axis = GetVirtualizedAxis(iter, CurrentVoltageState()); 
+        Dot currentDot= iter.Evaluate();
+        ControlAxis axis = NewFromPointAndDirection(CurrentVoltageState(), currentDot.Direction()); 
         BlipConeRay ray = BlipConeRay.New(axis);
         ray.SetBlips( 
             CharacterizeRay(
                 ray,
                 axis.Point(),
-                chargingEnergySearchCount * energy.Energy()
+                chargingEnergySearchCount * currentDot.Energy()
             )
         );
-        Array<Point> blips = ray.Blips();
-        if (blips.Size()<= 1) {
-            energy.UpdateEnergy(1.5*distance);
+        // Assume initial guess is good enough in direction to get to 2 blips with enough magnitude
+        if (ray.CountBlips() < chargingEnergySearchCount) {
+            currentDot.UpdateEnergy(1.5*distance);
             -> characterizeEnergySpectra(iter);
-        } elif (blips.Size() > 2) {
-            energy.UpdateEnergy(blips[1]- blips[0]);
+        } elif (blips.Size() > chargingEnergySearchCount) {
+            currentDot.UpdateEnergy(blips[1]- blips[0]);
             -> characterizeEnergySpectra(iter);
-        } else { // Force 2 blips
-            energy.UpdateEnergy(blips[1]- blips[0]);
-            Array<Gate> firstPlane;
-            Array<Gate> secondPlane;
-            firstPlane, secondPlane = ComputeRotationPlanes(iter);
-            BlipCone cone = BlipCone.New(theta, ray, firstPlane, secondPlane);
-            -> estimateVirtualizationCoefficient(iter, cone);
+        } else { // Force seeing only chargingEnergySearchCount blips
+            currentDot.UpdateEnergy(blips[1]- blips[0]);
+            -> estimateInterDot(iter, ray);
         }
     } 
-    state estimateVirtualizationCoefficient (Iterator<Dot> iter, BlipCone cone) {
-        Dot energy = iter.Evaluate();
-        BlipConePair first = cone.FirstPair();
+    state estimateInterDot(Iterator<Dot> iter, BlipConeRay principleAxis) {
+        // TODO: rays to search for interdot width
+        -> estimateVirtualizationCoefficient(iter);
+    }
+    state estimateVirtualizationCoefficient (Iterator<Dot> iter, BlipConeRay principleAxis) {
+        Dot currentDot= iter.Evaluate();
+        BlipConePair first = BlipConePair.New(theta, principalAxis, BuildFirstRotationPlane(iter)); 
         bool firstIsValid = first.Characterize(
-            cone.Tip(),
-            chargingEnergySearchCount * energy.Energy(),
-            2
+            principalAxis.Offset(),
+            chargingEnergySearchCount * currentDot.Energy(),
+            chargingEnergySearchCount 
         );
         if (!firstIsValid) {
+            // Should fix by performing a rotation
             -> failBlips(iter, first);
         }
+        // if your energy difference along the principalAxis is the shortest of the fan, then it is wrong
+        //currentDot.UpdateEnergy(ComputCurrentEnergyDifference(principleAxis, first, chargingEnergySearchCount));
+        if (iter.HasNext()) {
+            Dot nextDot= iter.Look(1);
+            nextDot.SetDirection(ComputeUpdatedNextDirection(principleAxis, first, nextDot.Gate()));
+        }
         if (iter.HasPrevious()) {
-            BlipConePair second = cone.SecondPair();
+            BlipConePair first = BlipConePair.New(theta, principalAxis, BuildSecondRotationPlane(iter)); 
             bool secondIsValid = second.Characterize(
-                cone.Tip(),
-                chargingEnergySearchCount * energy.Energy(),
-                2
+                principalAxis.Offset(),
+                chargingEnergySearchCount * currentDot.Energy(),
+                chargingEnergySearchCount
             );
             if (!secondIsValid) {
+                // Should fix by performing a rotation
                 -> failBlips(iter, second);
             }
+            currentDot.UpdateEnergy(ComputeCurrentEnergyDifference(principleAxis, second, chargingEnergySearchCount));
+            Dot previousDot = iter.Look(-1);
+            previousDot.SetDirection(ComputeUpdatedPreviousDirection(principleAxis, second, previousDot.Gate()));
         }
-        Dot energy = iter.Evaluate();
-        energy.UpdateEnergy(); // TODO:
-        iter.UpdatePreviousDirection(); // TODO:
         -> loadElectron(iter);
     }
     state loadElectron (Iterator<Dot> iter) {
