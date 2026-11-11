@@ -67,7 +67,7 @@ routine BuildSecondRotationPlane(
     }
 }
 
-// TODO: build this from estimated charging energies and directions from database
+// TODO: build this from estimated virutualizations from database
 routine QueryInitialVirtualization(Array<Gate> gates) -> (Array<Dot> dots)
 
 struct BlipConeRay {
@@ -200,9 +200,9 @@ routine ComputeLocation(Iterator<Dot> iter, Point currentState) -> (DomainAxis d
 // TODO: ramp the device following the DomainAxis
 routine Ramp (DomainAxis axis) -> ()
 
-// The device has had some minor characterizations of charging energies due to previous Coulomb blockade measurements
-// The starting point is approximately 0.25 to 0.75 charging energies in front of the first blip for all dots in the array
-// The ending point is approximately 0.25 to 0.75 charging energies after the charging energy of the first blip for all dots in the array
+// The device has had some minor characterizations of TODO due to previous Coulomb blockade measurements
+// The starting point is approximately 0.25 to 0.75 TODO in front of the first blip for all dots in the array
+// The ending point is approximately 0.25 to 0.75 TODO after the TODO of the first blip for all dots in the array
 // Assuming an SNR >= 4 for coulomb blockade from the environment
 // We assume barriers are ignored and completely virtualized
 // Assume only nearest neigboring plunger gate interactions
@@ -210,12 +210,12 @@ routine Ramp (DomainAxis axis) -> ()
 // Assume that the neigboring dots coupling is ... such that once placed in the center of a coulomb blockade window any coupling won't take it out
 autotuner SingleElectronTuner() -> (Error err) {
     err = nil;
-    int chargingEnergySearchCount = 2;
+    int loadedDotSearchCount= 2;
     float theta = 3.14159/ 12;
     start -> bootstrap;
     state bootstrap {
-        Iterator<Dot> chargingEnergyIter = Iterator.New(QueryInitialVirtualization(GetPlungerGates()));
-        -> characterizeEnergySpectra(chargingEnergies);
+        Iterator<Dot> dotIter = Iterator.New(QueryInitialVirtualization(GetPlungerGates()));
+        -> characterizeEnergySpectra(dotIter);
     }
     state characterizeEnergySpectra (Iterator<Dot> iter) {
         Dot currentDot= iter.Evaluate();
@@ -225,17 +225,17 @@ autotuner SingleElectronTuner() -> (Error err) {
             CharacterizeRay(
                 ray,
                 axis.Point(),
-                chargingEnergySearchCount * currentDot.Energy()
+                loadedDotSearchCount * currentDot.Energy()
             )
         );
         // Assume initial guess is good enough in direction to get to 2 blips with enough magnitude
-        if (ray.CountBlips() < chargingEnergySearchCount) {
+        if (ray.CountBlips() < loadedDotSearchCount) {
             currentDot.UpdateEnergy(1.5*distance);
             -> characterizeEnergySpectra(iter);
-        } elif (blips.Size() > chargingEnergySearchCount) {
+        } elif (blips.Size() > loadedDotSearchCount) {
             currentDot.UpdateEnergy(blips[1]- blips[0]);
             -> characterizeEnergySpectra(iter);
-        } else { // Force seeing only chargingEnergySearchCount blips
+        } else { // Force seeing only loadedDotSearchCount blips
             currentDot.UpdateEnergy(blips[1]- blips[0]);
             -> estimateInterDot(iter, ray);
         }
@@ -249,15 +249,15 @@ autotuner SingleElectronTuner() -> (Error err) {
         BlipConePair first = BlipConePair.New(theta, principalAxis, BuildFirstRotationPlane(iter)); 
         bool firstIsValid = first.Characterize(
             principalAxis.Offset(),
-            chargingEnergySearchCount * currentDot.Energy(),
-            chargingEnergySearchCount 
+            loadedDotSearchCount * currentDot.Energy(),
+            loadedDotSearchCount 
         );
         if (!firstIsValid) {
             // Should fix by performing a rotation
             -> failBlips(iter, first);
         }
         // if your energy difference along the principalAxis is the shortest of the fan, then it is wrong
-        //currentDot.UpdateEnergy(ComputCurrentEnergyDifference(principleAxis, first, chargingEnergySearchCount));
+        //currentDot.UpdateEnergy(ComputCurrentEnergyDifference(principleAxis, first, loadedDotSearchCount));
         if (iter.HasNext()) {
             Dot nextDot= iter.Look(1);
             nextDot.SetDirection(ComputeUpdatedNextDirection(principleAxis, first, nextDot.Gate()));
@@ -266,14 +266,14 @@ autotuner SingleElectronTuner() -> (Error err) {
             BlipConePair first = BlipConePair.New(theta, principalAxis, BuildSecondRotationPlane(iter)); 
             bool secondIsValid = second.Characterize(
                 principalAxis.Offset(),
-                chargingEnergySearchCount * currentDot.Energy(),
-                chargingEnergySearchCount
+                loadedDotSearchCount * currentDot.Energy(),
+                loadedDotSearchCount
             );
             if (!secondIsValid) {
                 // Should fix by performing a rotation
                 -> failBlips(iter, second);
             }
-            currentDot.UpdateEnergy(ComputeCurrentEnergyDifference(principleAxis, second, chargingEnergySearchCount));
+            currentDot.UpdateEnergy(ComputeCurrentEnergyDifference(principleAxis, second, loadedDotSearchCount));
             Dot previousDot = iter.Look(-1);
             previousDot.SetDirection(ComputeUpdatedPreviousDirection(principleAxis, second, previousDot.Gate()));
         }
