@@ -200,6 +200,74 @@ routine ComputeLocation(Iterator<Dot> iter, Point currentState) -> (DomainAxis d
 // TODO: ramp the device following the DomainAxis
 routine Ramp (DomainAxis axis) -> ()
 
+/*
+ Psuedo Algorithm code:
+
+Step 1: Initialize
+Assume initial starting point := (-(+)AV, ...) where AV is the average charging energy from the literature.
+A good source would be Sam Neyen's Intel paper. electrons(holes)
+
+Step 2: Calculate the charging energy
+sweep starting point -> (+(-)2*AV,-(+)AV,...) and check for 2 transitions
+if less than 2 blips sweep further by increasing by 1.5x until 2 transitions
+(T1,-(+)AV, ...) := first transition point
+(T2,-(+)AV, ...) := second transition point
+CE = abs(T2-T1) := the charging energy
+
+we can make an interpolated line at (T1 +(-)xCE, -(+)AV, ...) with x on [0,1]
+x can be physically motivated, RN it is 0.5
+C1ax(z) := T1 +(-)zCE 
+C1 :=(C1ax(x), -(+)AV,...)
+
+Step 3: Calculate slope
+theta := tan-1(0.5AV/2CE)
+sweep (T1 -(+)0.5CE, -(+)AV, ...) -> (T1 +(-)1.5CE,-(+)AV +(-)2CE*tan(theta),-(+)AV,...)
+sweep (T1 -(+)0.5CE, -(+)AV, ...) -> (T1 +(-)1.5CE,-(+)AV -(+)2CE*tan(theta),-(+)AV,...)
+
+reduced math:
+sweep1 (T1 -(+)0.5CE, -(+)AV, ...) -> (T1 +(-)0.5CE,-(+)0.5AV,-(+)AV,...)
+sweep2 (T1 -(+)0.5CE, -(+)AV, ...) -> (T1 +(-)0.5CE,-(+)1.5AV,-(+)AV,...)
+
+for sweep 1:
+(Tx1,Ty1,-(+)AV, ...) := transition point
+for sweep 2:
+(Tx2,Ty2,-(+)AV, ...) := transition point
+slope1 := abs(Ty2-Ty1)/abs(Tx2-Tx1)
+
+Step 4: Find interdot
+y := AV
+C1bx(z) := C1ax(z) -(+)(1/slope1)*z
+C1by(z) := -(+)AV +(-)slope1*z
+sweep C1 -> (C1bx(y), C1by(z), -(+)AV, ...)
+if a transisition does not occur, increase y by 1.5* and try again
+(Tx1b,Ty1b,-(+)AV, ...) := transition point
+Backing up to a safe starting spot
+C1b := (Tx1b +(-)0.5AV/slope1 , Ty1b -(+)0.5AVslope1, -(+)AV, ...)
+Querying slope
+phi can be physically motivated, RN it is pi/12
+sweep C1b -> (C1bx(y) - sin(phi)*sqrt((C1bx(y) - Tx1b -(+)0.5AV/slope1)^2 + (C1by(y) - Ty1b +(-)0.5AVslope1)^2), C1by(y), -(+)AV, ...)
+(Tx2b,Ty2b,-(+)AV, ...) := transition point
+slope2 := abs(Ty2b-Ty1b)/abs(Tx2b-Tx1b)
+TODO: Begin optimization searchign for interdot, biforcating with angles to the left, Newton's method perhaps
+
+We will know the point of the interdot, and both slopes connecting to it for the boundary of charge state (1,1,0,...)
+We will know the point of upper right corner of the charge state (0, 1, 0, ...)
+
+We know orthogonal directions for both slopes 
+Split the distance between the two points, and take average direction between those two slopes
+
+ TODO: choose a starting point in along the orthogonal direction on the point halving the distance.
+Sweep 2AV until 2 transisitons occur (we already know the slope)
+Compute dot product onto real gate axis to get CE between transistions
+
+ TODO: navigate to the center of the charge state (1,1,0...)
+Sweep in new axis orthogonal direction by some theta. gets us a slope for P2 P3
+TODO find interdot, we need to choose an x such that we stay in the previous charge cell
+
+TODO: iterate
+
+*/
+
 // The device has had some minor characterizations of TODO due to previous Coulomb blockade measurements
 // The starting point is approximately 0.25 to 0.75 TODO in front of the first blip for all dots in the array
 // The ending point is approximately 0.25 to 0.75 TODO after the TODO of the first blip for all dots in the array
@@ -214,6 +282,9 @@ autotuner SingleElectronTuner() -> (Error err) {
     float theta = 3.14159/ 12;
     start -> bootstrap;
     state bootstrap {
+        // TODO: Initialize initial position based on literature charging energies and charge sign 
+        // If electron loading start below 1 typical charging energy below 0V on all plungers
+        // If hole loading, consider inverting entire algorithm
         Iterator<Dot> dotIter = Iterator.New(QueryInitialVirtualization(GetPlungerGates()));
         -> characterizeEnergySpectra(dotIter);
     }
@@ -237,16 +308,9 @@ autotuner SingleElectronTuner() -> (Error err) {
             -> characterizeEnergySpectra(iter);
         } else { // Force seeing only loadedDotSearchCount blips
             currentDot.UpdateEnergy(blips[1]- blips[0]);
-            -> estimateInterDot(iter, ray);
+            -> estimateVirtualizationCoefficient(iter, ray);
         }
     } 
-    state estimateInterDot(Iterator<Dot> iter, BlipConeRay principleAxis) {
-        // TODO: rays to search for interdot width
-        // Specifically, can navigate along the next-dimension virtual axis until observing a blip
-        // with same slope, can step back current dot (plunger) voltage until observing no blip
-        // should do this with search/refinement instead of fixed sized steps
-        -> estimateVirtualizationCoefficient(iter);
-    }
     state estimateVirtualizationCoefficient (Iterator<Dot> iter, BlipConeRay principleAxis) {
         Dot currentDot= iter.Evaluate();
         BlipConePair first = BlipConePair.New(theta, principalAxis, BuildFirstRotationPlane(iter)); 
@@ -281,6 +345,13 @@ autotuner SingleElectronTuner() -> (Error err) {
             previousDot.SetDirection(ComputeUpdatedPreviousDirection(principleAxis, second, previousDot.Gate()));
         }
         -> loadElectron(iter);
+    }
+    state estimateInterDot(Iterator<Dot> iter, BlipConeRay principleAxis) {
+        // TODO: rays to search for interdot width
+        // Specifically, can navigate along the next-dimension virtual axis until observing a blip
+        // with same slope, can step back current dot (plunger) voltage until observing no blip
+        // should do this with search/refinement instead of fixed sized steps
+        -> estimateVirtualizationCoefficient(iter);
     }
     state loadElectron (Iterator<Dot> iter) {
         DomainAxis domain = ComputeLocation(iter, CurrentVoltageState());
