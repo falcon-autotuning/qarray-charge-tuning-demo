@@ -248,7 +248,17 @@ phi can be physically motivated, RN it is pi/12
 sweep C1b -> (C1bx(y) - sin(phi)*sqrt((C1bx(y) - Tx1b -(+)0.5AV/slope1)^2 + (C1by(y) - Ty1b +(-)0.5AVslope1)^2), C1by(y), -(+)AV, ...)
 (Tx2b,Ty2b,-(+)AV, ...) := transition point
 slope2 := abs(Ty2b-Ty1b)/abs(Tx2b-Tx1b)
-TODO: Begin optimization searchign for interdot, biforcating with angles to the left, Newton's method perhaps
+We know that the smallest interdot would occur where the slopes intersect at 
+(T1 -(+)(1/slope1)*w, C1by(w), -(+)AV, ...), float w
+(Tx1b -(+)(1/slope2)*z, Ty1b +(-)slope2*z,-(+)AV, ...0, float z
+Solving these two equations for z,w for simultaneous z', w' solutions
+Ix1 := Tx1b -(+)(1/slope2)*z'
+Iy1 := Ty1b +(-)slope2*z'
+maxguess := (Ix1, Iy1, -(+)AV, ...)
+now we want to query transitions searching at a slope of slope1
+TODO: slope2 line intersecting C1b with variable w, w=0 when on slope1 line intersecting  (T1,-(+)AV, ...), w=1 at C1b
+
+TODO: Begin optimization searchign for interdot, biforcating w to the left, Newton's method perhaps
 
 We will know the point of the interdot, and both slopes connecting to it for the boundary of charge state (1,1,0,...)
 We will know the point of upper right corner of the charge state (0, 1, 0, ...)
