@@ -242,6 +242,9 @@ autotuner SingleElectronTuner() -> (Error err) {
     } 
     state estimateInterDot(Iterator<Dot> iter, BlipConeRay principleAxis) {
         // TODO: rays to search for interdot width
+        // Specifically, can navigate along the next-dimension virtual axis until observing a blip
+        // with same slope, can step back current dot (plunger) voltage until observing no blip
+        // should do this with search/refinement instead of fixed sized steps
         -> estimateVirtualizationCoefficient(iter);
     }
     state estimateVirtualizationCoefficient (Iterator<Dot> iter, BlipConeRay principleAxis) {
