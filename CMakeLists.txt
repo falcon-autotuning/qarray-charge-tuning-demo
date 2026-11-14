@@ -150,6 +150,19 @@ set(PLPLOT_DATA_DIR "${VCPKG_TREE}/share/plplot/data")
 # honest: it is the same translation unit against the same headers, so any drift
 # in falcon-core / falcon-typing / falcon-qarray-device surfaces at `make build`
 # instead of halfway through a DSL run.
+add_library(blip-analysis-wrapper SHARED libs/blipAnalysis/blip-analysis-wrapper.cpp)
+target_link_libraries(blip-analysis-wrapper
+  PRIVATE
+    falcon-core::falcon-core
+    falcon::falcon-typing
+    spdlog::spdlog
+    ${CMAKE_DL_LIBS}
+)
+set_target_properties(blip-analysis-wrapper PROPERTIES
+  PREFIX "lib"
+  POSITION_INDEPENDENT_CODE ON
+)
+
 add_library(qarray-wrapper SHARED qarray-wrapper.cpp)
 
 target_include_directories(qarray-wrapper PRIVATE ${PLPLOT_INCLUDE_DIR})
@@ -190,6 +203,11 @@ endif()
 configure_file(
   "${CMAKE_SOURCE_DIR}/hub.fal.in"
   "${CMAKE_SOURCE_DIR}/hub.fal"
+  @ONLY
+)
+configure_file(
+  "${CMAKE_SOURCE_DIR}/libs/blipAnalysis/blipAnalysis.fal.in"
+  "${CMAKE_SOURCE_DIR}/libs/blipAnalysis/blipAnalysis.fal"
   @ONLY
 )
 message(STATUS "Generated hub.fal with ffimport flags for ${VCPKG_TREE}")
