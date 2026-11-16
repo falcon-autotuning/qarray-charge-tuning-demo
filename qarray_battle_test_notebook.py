@@ -31,7 +31,7 @@ def _(mo):
 
 
 @app.cell
-def _(ChargeSensedDotArray, device_selector, np):
+def _(ChargeSensedDotArray, device_selector, np, plt):
     n_dots = device_selector.value
     n_plungers = n_dots
     # n_barriers = n_dots - 1
@@ -105,6 +105,8 @@ def _(ChargeSensedDotArray, device_selector, np):
 
     # 4. Cgs: Pure sensor gate coupling
     Cgs = np.zeros((n_sensors, n_gates))
+    Cgs[0,:-1] = gate_dot_cap/4 # assumes screening gate width proportion squared
+    Cgs[0,-1] = gate_dot_cap
 
     active_device = ChargeSensedDotArray(
         Cdd=Cdd,
@@ -112,33 +114,42 @@ def _(ChargeSensedDotArray, device_selector, np):
         Cds=Cds,
         Cgs=Cgs,
         charge_carrier="electrons",
-        T=0.01,
+        coulomb_peak_width = 0.0005,
+        T=0.1,
     )
 
     # Calibrate sensor gate S1 bias to steepest transconductance flank
-    _vs = np.linspace(-1.5, 0.5, 150)
-    _vg = np.zeros((150, n_gates))
+    _k = 120
+
+    _vs = np.linspace(-2*charging_energy, 2*charging_energy, _k)
+    _vg = np.zeros((_k, n_gates))
     _vg[:, -1] = _vs
+
+    print(_vg)
+
     _s, _ = active_device.charge_sensor_open(_vg)
     _grad = np.gradient(_s[:, 0], _vs)
-    optimal_s1_bias = float(_vs[np.argmax(np.abs(_grad))])
+    _s1_bias = float(_vs[np.argmax(np.abs(_grad))])
+    plt.plot(_vs,_s)
+    plt.plot(_vs,_grad)
     return (
         Cdd,
         Cds,
         Cgd,
+        Cgs,
         active_device,
         all_gate_names,
         charging_energy,
         n_dots,
         n_gates,
+        n_plungers,
         n_sensors,
-        optimal_s1_bias,
         plunger_names,
     )
 
 
 @app.cell
-def _(Cdd, Cds, Cgd, np):
+def _(Cdd, Cds, Cgd, Cgs, np):
     print("Cgd")
     with np.printoptions(precision=4, suppress=True):
         print(Cgd)
@@ -148,16 +159,18 @@ def _(Cdd, Cds, Cgd, np):
     print("Cds")
     with np.printoptions(precision=4, suppress=True):
         print(Cds)
-
+    print("Cgs")
+    with np.printoptions(precision=4, suppress=True):
+        print(Cgs)
     return
 
 
 @app.cell(hide_code=True)
-def _(charging_energy, mo, plunger_names, set_history, set_state):
+def _(charging_energy, mo, n_sensors, plunger_names, set_history, set_state):
     # Reactive sliders for all plunger gates with full [-2.0, 2.0] V range
     start_val = -4*charging_energy
     end_val = 4*charging_energy
-    step_val = (end_val - start_val)/20
+    step_val = (end_val - start_val)/50
 
     raw_dict = {}
     for _p in plunger_names:
@@ -175,6 +188,22 @@ def _(charging_energy, mo, plunger_names, set_history, set_state):
             step=step_val,
             value=def_end,
             label=f"{_p} End (V)",
+        )
+
+    for _i in range(n_sensors): 
+        raw_dict[f"S{_i+1}_start"] = mo.ui.slider(
+            start=start_val,
+            stop=end_val,
+            step=(end_val - start_val)/1000,
+            value=0.0,
+            label=f"S{_i+1} Start (V)",
+        )
+        raw_dict[f"S{_i+1}_end"] = mo.ui.slider(
+            start=start_val,
+            stop=end_val,
+            step=(end_val - start_val)/1000,
+            value=0.0,
+            label=f"S{_i+1} End (V)",
         )
 
     resolution_slider = mo.ui.slider(
@@ -203,8 +232,9 @@ def _(charging_energy, mo, plunger_names, set_history, set_state):
     rows = []
     for _p in plunger_names:
         rows.append(mo.hstack([slider_dict[f"{_p}_start"], slider_dict[f"{_p}_end"]], justify="start"))
+    for _i in range(n_sensors): 
+        rows.append(mo.hstack([slider_dict[f"S{_i+1}_start"],slider_dict[f"S{_i+1}_end"]], justify="start"))
     rows.append(mo.hstack([slider_dict["resolution"], commit_btn, reset_btn, dropdown], justify="start"))
-
 
     panel = mo.vstack(rows)
     return commit_btn, dropdown, panel, slider_dict
@@ -226,8 +256,9 @@ def _(
     get_state,
     n_dots,
     n_gates,
+    n_plungers,
+    n_sensors,
     np,
-    optimal_s1_bias,
     plunger_names,
     set_history,
     set_state,
@@ -242,9 +273,10 @@ def _(
     # for _b in range(n_barriers):
     #     v_start[n_dots + _b] = -0.05
     #     v_end[n_dots + _b] = -0.05
-
-    v_start[-1] = optimal_s1_bias
-    v_end[-1] = optimal_s1_bias
+    # assigns slider vals for sensor gates to be last n_sensors 
+    for _i in range(n_sensors):
+        v_start[_i + n_plungers] = slider_vals[f"S{_i+1}_start"]
+        v_end[_i + n_plungers] = slider_vals[f"S{_i+1}_end"]
 
     for _p in plunger_names:
         _idx = all_gate_names.index(_p)
@@ -329,7 +361,6 @@ def _(
     n_gates,
     n_sensors,
     np,
-    optimal_s1_bias,
     plt,
     plunger_names,
     ray_lambda,
@@ -348,10 +379,10 @@ def _(
         v_start[None, :]
         + ray_lambda[:, None] * (v_end - v_start)[None, :]
     )
-    ray_vg[:, -1] = optimal_s1_bias
 
     ray_sensor_readings, _ = active_device.charge_sensor_open(ray_vg)
-    blip_signals = abs(np.gradient(ray_sensor_readings, ray_lambda, axis=0))
+    # blip_signals = abs(np.gradient(ray_sensor_readings, ray_lambda, axis=0))
+    blip_signals = np.gradient(ray_sensor_readings, ray_lambda, axis=0)
 
     # One CSD row and one blip row per sensor, plus one potential row.
     n_rows = 2 * n_sensors + 1
@@ -364,10 +395,9 @@ def _(
         figure=fig,
     )
 
-    res_csd = 141
+    res_csd = 255
 
-    .013
-    p_span = (-2.5*charging_energy, 0.5*charging_energy)
+    p_span = (-5*charging_energy, 2*charging_energy)
     p_grid = np.linspace(p_span[0], p_span[1], res_csd)
     P_X, P_Y = np.meshgrid(p_grid, p_grid)
 
@@ -384,7 +414,6 @@ def _(
                 vg_slice = np.tile(v_end, (res_csd, res_csd, 1))
                 vg_slice[:, :, p_x_idx] = P_X
                 vg_slice[:, :, p_y_idx] = P_Y
-                vg_slice[:, :, -1] = optimal_s1_bias
 
                 sens_2d, _ = active_device.charge_sensor_open(
                     vg_slice.reshape(-1, n_gates)
@@ -607,7 +636,6 @@ def _(
     ax_pot.legend(loc="upper right", frameon=False, fontsize=9)
 
     fig.tight_layout()
-
     return (fig,)
 
 
