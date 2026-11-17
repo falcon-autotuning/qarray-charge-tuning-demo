@@ -7,10 +7,10 @@ app = marimo.App(width="full")
 @app.cell
 def _():
     import marimo as mo
-    import numpy as np
     import matplotlib.pyplot as plt
-    from scipy.signal import find_peaks
+    import numpy as np
     from qarray import ChargeSensedDotArray
+    from scipy.signal import find_peaks
 
     return ChargeSensedDotArray, find_peaks, mo, np, plt
 
@@ -36,12 +36,11 @@ def _(ChargeSensedDotArray, device_selector, np, plt):
     n_plungers = n_dots
     # n_barriers = n_dots - 1
     # n_gates = n_plungers + n_barriers + 1
-    n_sensors = (n_dots-1)//3 + 1
-
+    n_sensors = (n_dots - 1) // 3 + 1
 
     n_gates = n_plungers + n_sensors
 
-    plunger_names = [f"P{_i+1}" for _i in range(n_plungers)]
+    plunger_names = [f"P{_i + 1}" for _i in range(n_plungers)]
     # barrier_names = [f"B{_i+1}" for _i in range(n_barriers)]
     # all_gate_names = plunger_names + barrier_names + ["S1"]
     all_gate_names = plunger_names + [f"S{_i}" for _i in range(n_sensors)]
@@ -49,34 +48,38 @@ def _(ChargeSensedDotArray, device_selector, np, plt):
     # QArray assumes e=1, which took time to determine
 
     attoFarads = 10**-18
-    electron_charge = 1.6*10**(-19) # Coulumbs
+    electron_charge = 1.6 * 10 ** (-19)  # Coulumbs
     wiggle_factor = 1
 
-    interdot_cap = 3.0*attoFarads/electron_charge  # atto Farads
+    interdot_cap = 3.0 * attoFarads / electron_charge  # atto Farads
 
-    charging_energy = .013 # Volts, 13mV
+    charging_energy = 0.013  # Volts, 13mV
 
+    gate_dot_cap = 1 / charging_energy  # Coulumbs / Volts -> Farads
 
+    dot_dot_cap = (
+        (1 / wiggle_factor) * 2.0 * attoFarads / electron_charge
+    )  # atto Farads (typically between 0-10)
 
-    gate_dot_cap = (1/charging_energy) # Coulumbs / Volts -> Farads 
+    dot_sensor_cap = (
+        (1 / wiggle_factor) * 1.0 * attoFarads / electron_charge
+    )  # atto Farads (typically between 0-2) is just based on how far the sensor is from the dot, so derived from same as interdot
 
-    dot_dot_cap = (1/wiggle_factor)*2.0*attoFarads/electron_charge # atto Farads (typically between 0-10)
+    dot_dot_diag_cap = (
+        (1 / wiggle_factor) * 30 * attoFarads / electron_charge
+    )  # Typically about 40-70 atto Farads
 
-    dot_sensor_cap = (1/wiggle_factor)*1.0*attoFarads/electron_charge # atto Farads (typically between 0-2) is just based on how far the sensor is from the dot, so derived from same as interdot
-
-    dot_dot_diag_cap = (1/wiggle_factor)*30*attoFarads/electron_charge # Typically about 40-70 atto Farads
-
-    sensor_gate_dot_cap = .1*attoFarads/electron_charge
+    sensor_gate_dot_cap = 0.1 * attoFarads / electron_charge
     # C_diag = electron_charge**2 / charging_energy # Typically about 40-70 atto Farads
     # C_dot_dot = 0 # Typically about 0 to 10 atto Farads
 
     # 1. Cdd: strictly nearest-neighbor tridiagonal
     Cdd = np.zeros((n_dots, n_dots))
     for _i in range(n_dots - 1):
-        Cdd[_i,_i] = dot_dot_diag_cap
-        Cdd[_i, _i + 1] = dot_dot_cap # was .1
+        Cdd[_i, _i] = dot_dot_diag_cap
+        Cdd[_i, _i + 1] = dot_dot_cap  # was .1
         Cdd[_i + 1, _i] = dot_dot_cap
-    Cdd[n_dots-1,n_dots-1] = dot_dot_diag_cap 
+    Cdd[n_dots - 1, n_dots - 1] = dot_dot_diag_cap
 
     # 2. Cgd: nearest-neighbor plungers only, non-adjacent are 0.0
     Cgd = np.zeros((n_dots, n_gates))
@@ -84,29 +87,28 @@ def _(ChargeSensedDotArray, device_selector, np, plt):
         Cgd[_i, _i] = gate_dot_cap
         for _j in range(n_plungers):
             if abs(_i - _j) == 1:
-                Cgd[_i, _j] = gate_dot_cap/4 # was .1, is now .012
+                Cgd[_i, _j] = gate_dot_cap / 4  # was .1, is now .012
         for _k in range(n_sensors):
-            if (_i//3 == _k): 
-                Cgd[_i,_k+n_plungers-1] = sensor_gate_dot_cap
+            if _i // 3 == _k:
+                Cgd[_i, _k + n_plungers - 1] = sensor_gate_dot_cap
             # else get 0.0
 
     # 3. Cds: Sensor placed adjacent to Dot 1
     Cds = np.zeros((n_sensors, n_dots))
 
-    sensor_caps = [.85,.95,.75]
+    sensor_caps = [0.85, 0.95, 0.75]
 
     for _j in range(n_sensors):
         for _i in range(3):
-            if (_i + 3*_j < n_dots): 
-                Cds[_j,_i + 3*_j] = dot_sensor_cap*sensor_caps[_i]
-            else: 
+            if _i + 3 * _j < n_dots:
+                Cds[_j, _i + 3 * _j] = dot_sensor_cap * sensor_caps[_i]
+            else:
                 break
-
 
     # 4. Cgs: Pure sensor gate coupling
     Cgs = np.zeros((n_sensors, n_gates))
-    Cgs[0,:-1] = gate_dot_cap/4 # assumes screening gate width proportion squared
-    Cgs[0,-1] = gate_dot_cap
+    Cgs[0, :-1] = gate_dot_cap / 4  # assumes screening gate width proportion squared
+    Cgs[0, -1] = gate_dot_cap
 
     active_device = ChargeSensedDotArray(
         Cdd=Cdd,
@@ -114,24 +116,16 @@ def _(ChargeSensedDotArray, device_selector, np, plt):
         Cds=Cds,
         Cgs=Cgs,
         charge_carrier="electrons",
-        coulomb_peak_width = 0.0005,
+        coulomb_peak_width=0.0005,
         T=0.1,
     )
 
     # Calibrate sensor gate S1 bias to steepest transconductance flank
     _k = 120
 
-    _vs = np.linspace(-2*charging_energy, 2*charging_energy, _k)
+    _vs = np.linspace(-2 * charging_energy, 2 * charging_energy, _k)
     _vg = np.zeros((_k, n_gates))
     _vg[:, -1] = _vs
-
-    print(_vg)
-
-    _s, _ = active_device.charge_sensor_open(_vg)
-    _grad = np.gradient(_s[:, 0], _vs)
-    _s1_bias = float(_vs[np.argmax(np.abs(_grad))])
-    plt.plot(_vs,_s)
-    plt.plot(_vs,_grad)
     return (
         Cdd,
         Cds,
@@ -162,15 +156,14 @@ def _(Cdd, Cds, Cgd, Cgs, np):
     print("Cgs")
     with np.printoptions(precision=4, suppress=True):
         print(Cgs)
-    return
 
 
 @app.cell(hide_code=True)
 def _(charging_energy, mo, n_sensors, plunger_names, set_history, set_state):
     # Reactive sliders for all plunger gates with full [-2.0, 2.0] V range
-    start_val = -4*charging_energy
-    end_val = 4*charging_energy
-    step_val = (end_val - start_val)/50
+    start_val = -4 * charging_energy
+    end_val = 4 * charging_energy
+    step_val = (end_val - start_val) / 50
 
     raw_dict = {}
     for _p in plunger_names:
@@ -181,7 +174,11 @@ def _(charging_energy, mo, n_sensors, plunger_names, set_history, set_state):
             value=0.0,
             label=f"{_p} Start (V)",
         )
-        def_end = -charging_energy if _p == "P1" else (-charging_energy if _p == "P2" else 0.0)
+        def_end = (
+            -charging_energy
+            if _p == "P1"
+            else (-charging_energy if _p == "P2" else 0.0)
+        )
         raw_dict[f"{_p}_end"] = mo.ui.slider(
             start=start_val,
             stop=end_val,
@@ -190,20 +187,20 @@ def _(charging_energy, mo, n_sensors, plunger_names, set_history, set_state):
             label=f"{_p} End (V)",
         )
 
-    for _i in range(n_sensors): 
-        raw_dict[f"S{_i+1}_start"] = mo.ui.slider(
+    for _i in range(n_sensors):
+        raw_dict[f"S{_i + 1}_start"] = mo.ui.slider(
             start=start_val,
             stop=end_val,
-            step=(end_val - start_val)/1000,
+            step=(end_val - start_val) / 1000,
             value=0.0,
-            label=f"S{_i+1} Start (V)",
+            label=f"S{_i + 1} Start (V)",
         )
-        raw_dict[f"S{_i+1}_end"] = mo.ui.slider(
+        raw_dict[f"S{_i + 1}_end"] = mo.ui.slider(
             start=start_val,
             stop=end_val,
-            step=(end_val - start_val)/1000,
+            step=(end_val - start_val) / 1000,
             value=0.0,
-            label=f"S{_i+1} End (V)",
+            label=f"S{_i + 1} End (V)",
         )
 
     resolution_slider = mo.ui.slider(
@@ -224,17 +221,32 @@ def _(charging_energy, mo, n_sensors, plunger_names, set_history, set_state):
         kind="success",
     )
 
-
-
-    dropdown = mo.ui.dropdown(options=[_p for _p in plunger_names],value=plunger_names[0],label="Select Axis")
-
+    dropdown = mo.ui.dropdown(
+        options=[_p for _p in plunger_names],
+        value=plunger_names[0],
+        label="Select Axis",
+    )
 
     rows = []
     for _p in plunger_names:
-        rows.append(mo.hstack([slider_dict[f"{_p}_start"], slider_dict[f"{_p}_end"]], justify="start"))
-    for _i in range(n_sensors): 
-        rows.append(mo.hstack([slider_dict[f"S{_i+1}_start"],slider_dict[f"S{_i+1}_end"]], justify="start"))
-    rows.append(mo.hstack([slider_dict["resolution"], commit_btn, reset_btn, dropdown], justify="start"))
+        rows.append(
+            mo.hstack(
+                [slider_dict[f"{_p}_start"], slider_dict[f"{_p}_end"]], justify="start"
+            )
+        )
+    for _i in range(n_sensors):
+        rows.append(
+            mo.hstack(
+                [slider_dict[f"S{_i + 1}_start"], slider_dict[f"S{_i + 1}_end"]],
+                justify="start",
+            )
+        )
+    rows.append(
+        mo.hstack(
+            [slider_dict["resolution"], commit_btn, reset_btn, dropdown],
+            justify="start",
+        )
+    )
 
     panel = mo.vstack(rows)
     return commit_btn, dropdown, panel, slider_dict
@@ -243,7 +255,6 @@ def _(charging_energy, mo, n_sensors, plunger_names, set_history, set_state):
 @app.cell
 def _(panel):
     panel
-    return
 
 
 @app.cell(hide_code=True)
@@ -273,10 +284,10 @@ def _(
     # for _b in range(n_barriers):
     #     v_start[n_dots + _b] = -0.05
     #     v_end[n_dots + _b] = -0.05
-    # assigns slider vals for sensor gates to be last n_sensors 
+    # assigns slider vals for sensor gates to be last n_sensors
     for _i in range(n_sensors):
-        v_start[_i + n_plungers] = slider_vals[f"S{_i+1}_start"]
-        v_end[_i + n_plungers] = slider_vals[f"S{_i+1}_end"]
+        v_start[_i + n_plungers] = slider_vals[f"S{_i + 1}_start"]
+        v_end[_i + n_plungers] = slider_vals[f"S{_i + 1}_end"]
 
     for _p in plunger_names:
         _idx = all_gate_names.index(_p)
@@ -368,17 +379,14 @@ def _(
     v_end,
     v_start,
 ):
-    import matplotlib.gridspec as gridspec
+    from matplotlib import gridspec
 
     n_csd_pairs = max(1, n_dots - 1)
     _selected_shared_axis = dropdown.value
     idx = plunger_names.index(_selected_shared_axis)
 
     # Evaluate all sensor responses along the ray and differentiate them.
-    ray_vg = (
-        v_start[None, :]
-        + ray_lambda[:, None] * (v_end - v_start)[None, :]
-    )
+    ray_vg = v_start[None, :] + ray_lambda[:, None] * (v_end - v_start)[None, :]
 
     ray_sensor_readings, _ = active_device.charge_sensor_open(ray_vg)
     # blip_signals = abs(np.gradient(ray_sensor_readings, ray_lambda, axis=0))
@@ -386,7 +394,7 @@ def _(
 
     # One CSD row and one blip row per sensor, plus one potential row.
     n_rows = 2 * n_sensors + 1
-    fig = plt.figure(figsize=(11, 3.2 * n_rows))
+    fig = plt.figure(figsize=(15, 3.2 * n_rows))
     gs = gridspec.GridSpec(
         n_rows,
         3,
@@ -397,7 +405,7 @@ def _(
 
     res_csd = 255
 
-    p_span = (-5*charging_energy, 2*charging_energy)
+    p_span = (-5 * charging_energy, 2 * charging_energy)
     p_grid = np.linspace(p_span[0], p_span[1], res_csd)
     P_X, P_Y = np.meshgrid(p_grid, p_grid)
 
@@ -548,18 +556,15 @@ def _(
 
     x = np.linspace(0, n_dots, 600)
     U_x = np.full_like(x, barrier_height_meV)
-    U_x += 100.0 * (
-        np.exp(-(x / 0.18) ** 2)
-        + np.exp(-((x - n_dots) / 0.18) ** 2)
-    )
+    U_x += 100.0 * (np.exp(-((x / 0.18) ** 2)) + np.exp(-(((x - n_dots) / 0.18) ** 2)))
 
     for _i in range(n_dots):
         _well_c = _i + 0.5
         _depth = barrier_height_meV - dot_bottoms_meV[_i]
         if _depth > 0:
-            U_x -= _depth * np.exp(-((x - _well_c) / 0.28) ** 2)
+            U_x -= _depth * np.exp(-(((x - _well_c) / 0.28) ** 2))
         else:
-            U_x += (-_depth) * np.exp(-((x - _well_c) / 0.28) ** 2)
+            U_x += (-_depth) * np.exp(-(((x - _well_c) / 0.28) ** 2))
 
     ax_pot.plot(x, U_x, "k-", lw=2, label="Conduction Band $E_c(x)$")
     ax_pot.axhline(
@@ -642,7 +647,6 @@ def _(
 @app.cell
 def _(fig, mo):
     mo.as_html(fig)
-    return
 
 
 @app.cell(hide_code=True)
@@ -673,8 +677,7 @@ def _(
         ]
         history_table = (
             "| Step | State Transition | Plunger Voltages (V) | Detected Blips |\n"
-            "| :--- | :--- | :--- | :--- |\n"
-            + "\n".join(hist_rows)
+            "| :--- | :--- | :--- | :--- |\n" + "\n".join(hist_rows)
         )
 
     mo.md(
@@ -688,7 +691,6 @@ def _(
         {history_table}
         """
     )
-    return
 
 
 if __name__ == "__main__":
