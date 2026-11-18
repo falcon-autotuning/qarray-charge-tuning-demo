@@ -82,7 +82,7 @@ def _(ChargeSensedDotArray, device_selector: marimo.ui.radio, np):
     gate_dot_cap = 1 / charging_energy  # Coulumbs / Volts -> Farads
 
     dot_dot_cap = (
-        (1 / wiggle_factor) * 2.0 * attoFarads / electron_charge
+        (1 / wiggle_factor) * 10.0 * attoFarads / electron_charge
     )  # atto Farads (typically between 0-10)
 
     dot_sensor_cap = (
@@ -154,6 +154,7 @@ def _(ChargeSensedDotArray, device_selector: marimo.ui.radio, np):
         coulomb_peak_width=0.0005,
         T=0.1,
     )
+    print("Dot carrier:", active_device.charge_carrier)
     return (
         Cdd,
         Cds,
@@ -668,8 +669,12 @@ def _(
 
         vg_ray = np.linspace(v_start, v_end, num_pts)
 
+        sign = 1
+        if active_device.charge_carrier == "electrons":
+            sign = -1
+
         # Native qarray simulation of sensor response and ideal ground state
-        raw_sensor, ideal_charges = active_device.charge_sensor_open(vg_ray)
+        raw_sensor, ideal_charges = active_device.charge_sensor_open(sign * vg_ray)
 
         final_charges = ideal_charges[-1].astype(int)
         ideal_final = ideal_charges[-1].astype(int)
@@ -773,7 +778,10 @@ def _(
         + static_P_X.ravel()[:, None] * x_vector[None, :]
         + static_P_Y.ravel()[:, None] * y_vector[None, :]
     )
-    sensor_response, charge_states = active_device.charge_sensor_open(vg)
+    sign = 1
+    if active_device.charge_carrier == "electrons":
+        sign = -1
+    sensor_response, charge_states = active_device.charge_sensor_open(sign * vg)
 
     x_name = "Virtual X"
     y_name = "Virtual Y"
@@ -887,7 +895,10 @@ def _(
         # Evaluate all sensor responses along the ray and differentiate them.
         ray_vg = v_start[None, :] + ray_lambda[:, None] * (v_end - v_start)[None, :]
 
-        ray_sensor_readings, _ = active_device.charge_sensor_open(ray_vg)
+        sign = 1
+        if active_device.charge_carrier == "electrons":
+            sign = -1
+        ray_sensor_readings, _ = active_device.charge_sensor_open(sign * ray_vg)
         # blip_signals = abs(np.gradient(ray_sensor_readings, ray_lambda, axis=0))
         blip_signals = np.gradient(ray_sensor_readings, ray_lambda, axis=0)
 
