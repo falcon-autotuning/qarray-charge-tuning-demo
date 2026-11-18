@@ -6,6 +6,8 @@ app = marimo.App(width="full")
 
 @app.cell
 def _():
+    import json
+
     import marimo as mo
     import matplotlib.pyplot as plt
     import numpy as np
@@ -26,6 +28,7 @@ def _():
     return (
         ChargeSensedDotArray,
         find_peaks,
+        json,
         mo,
         np,
         plt,
@@ -327,7 +330,8 @@ def _(
 
 
 @app.cell(hide_code=True)
-def _(mo, static_cache, set_static_reset):
+def _(json, mo, static_cache, set_static_reset):
+
     def _reset_static(_):
         static_cache.clear()
         static_cache.update(
@@ -348,7 +352,49 @@ def _(mo, static_cache, set_static_reset):
         kind="danger",
         on_click=_reset_static,
     )
-    return (reset_static_btn,)
+
+    import crossfiledialog
+
+    def _save_with_os_dialog(_):
+        path = crossfiledialog.save_file(
+            title="Save JSON As",
+        )
+        if path:
+            if not path.endswith(".json"):
+                path += ".json"
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(static_cache, f, indent=2)
+
+    save_btn = mo.ui.button(
+        label="Save JSON As...",
+        on_click=_save_with_os_dialog,
+    )
+
+    load_file = mo.ui.file(
+        filetypes=[".json"],
+        multiple=False,
+        label="Load JSON",
+    )
+
+    return (
+        reset_static_btn,
+        save_btn,
+        load_file,
+    )
+
+
+@app.cell
+def _(json, load_file, static_cache, set_static_reset):
+
+    if load_file.value:
+        uploaded = load_file.value[0]
+
+        cache_data = json.loads(uploaded.contents.decode("utf-8"))
+
+        static_cache.clear()
+        static_cache.update(cache_data)
+
+        set_static_reset(lambda n: n + 1)
 
 
 @app.cell(hide_code=True)
@@ -527,16 +573,18 @@ def _(
     x_domain,
     y_domain,
     reset_static_btn,
+    save_btn,
+    load_file,
     resolution_slider,
 ):
     static_panel = mo.vstack(
         [
+            mo.hstack([save_btn, load_file, reset_static_btn]),
             virtual_gate_matrix,
             mo.hstack(
                 [
                     x_domain,
                     y_domain,
-                    reset_static_btn,
                 ]
             ),
             resolution_slider,
