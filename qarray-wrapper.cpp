@@ -572,11 +572,25 @@ void AnalyzeBlips(const FalconParamEntry *params, int32_t param_count,
       n_sensors = std::max(n_sensors, 1);
     }
     for (int i = 0; i < resolution; ++i) {
-      auto idx = static_cast<size_t>(i * n_sensors);
-      if (idx < result.differentiated_signal.size()) {
-        signal.push_back(result.differentiated_signal[idx]);
+      if (n_sensors == 1) {
+        auto idx = static_cast<size_t>(i);
+        if (idx < result.differentiated_signal.size()) {
+          signal.push_back(result.differentiated_signal[idx]);
+        } else {
+          signal.push_back(0.0);
+        }
       } else {
-        signal.push_back(0.0);
+        // Multi-sensor configuration: compute Euclidean composite norm
+        // sqrt(sum_s (differentiated_signal[i, s])^2)
+        double sum_sq = 0.0;
+        for (int s = 0; s < n_sensors; ++s) {
+          auto idx = static_cast<size_t>(i * n_sensors + s);
+          if (idx < result.differentiated_signal.size()) {
+            double v = result.differentiated_signal[idx];
+            sum_sq += v * v;
+          }
+        }
+        signal.push_back(std::sqrt(sum_sq));
       }
     }
   } else {

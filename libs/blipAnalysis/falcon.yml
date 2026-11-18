@@ -1,0 +1,18 @@
+name: blipAnalysis
+version: 1.0.0
+maintainer: falcon-devs
+ffi:
+  blip-analysis-wrapper.so: sha256:6e1d6ec39ccee2649c618bcb7b8055e9365904b296e774dd3f7ead73c492c2bf
+dependencies:
+  - name: point
+    version: 1.0.0
+    local_path: ../falconCore/math/point/
+  - name: array
+    version: 1.0.0
+    local_path: ../collections/array/
+  - name: farray
+    version: 1.0.0
+    local_path: ../falconCore/generic/farray/
+  - name: labelledMeasuredArray
+    version: 1.0.0
+    local_path: ../falconCore/math/arrays/labelledMeasuredArray/

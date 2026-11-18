@@ -1,0 +1,43 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// libs/blipAnalysis/blipAnalysis.fal.in
+// Template for blipAnalysis.fal generated during configure
+// ─────────────────────────────────────────────────────────────────────────────
+import (
+  "libs/falconCore/math/point/point.fal"
+  "libs/collections/array/array.fal"
+  "libs/falconCore/generic/farray/farray.fal"
+  "libs/falconCore/math/arrays/labelledMeasuredArray/labelledMeasuredArray.fal"
+)
+
+ffimport "blip-analysis-wrapper.cpp" (
+  "-std=c++20"
+  "-I/home/daniel/work/research/falcon/playground/qarray-demo-playground/qarray-charge-tuning-demo/vcpkg_installed/x64-linux-dynamic/include"
+  "-I/home/daniel/work/research/falcon/playground/qarray-demo-playground/qarray-charge-tuning-demo/cpython-3.12/include/python3.12"
+) (
+  "-L/home/daniel/work/research/falcon/playground/qarray-demo-playground/qarray-charge-tuning-demo/vcpkg_installed/x64-linux-dynamic/lib"
+  "-L/home/daniel/work/research/falcon/playground/qarray-demo-playground/qarray-charge-tuning-demo/cpython-3.12/lib"
+  "-lfalcon-core"
+  "-lfalcon-typing"
+  "-lspdlog"
+  "-lfmt"
+  "-lm"
+  "-lpthread"
+  "-ldl"
+)
+
+// Analyzes a measured 1D ray trace (from MeasurementResponse / LabelledMeasuredArray)
+// given the start and end Point in gate voltage space, and returns the list of blip Points.
+routine AnalyzeRayBlips(
+  labelledMeasuredArray::LabelledMeasuredArray trace,
+  point::Point startPoint,
+  point::Point endPoint,
+  float thresholdSigma
+) -> (array::Array<point::Point> blipPoints)
+
+// Overload taking an FArray of raw measured values along the ray
+routine AnalyzeFArrayRayBlips(
+  farray::FArray trace,
+  point::Point startPoint,
+  point::Point endPoint,
+  float thresholdSigma
+) -> (array::Array<point::Point> blipPoints)

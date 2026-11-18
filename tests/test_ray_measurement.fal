@@ -1,0 +1,106 @@
+import (
+  "libs/testing/testing.fal"
+  "libs/collections/array/array.fal"
+  "libs/collections/map/map.fal"
+  "libs/falconCore/math/quantity/quantity.fal"
+  "libs/falconCore/math/point/point.fal"
+  "libs/falconCore/physics/deviceStructures/connection/connection.fal"
+  "libs/falconCore/physics/units/symbolUnit/symbolUnit.fal"
+  "libs/strings/strings.fal"
+  "libs/log/log.fal"
+  "../hub.fal"
+  "../rayMeasurement.fal"
+)
+
+autotuner RayMeasurementTest -> (int passed, int failed) {
+  passed = 0; failed = 0;
+  start -> __init;
+
+  state test_MeasureRayDiagonal (TestRunner runner, TestContext t) {
+    hub::RestartDevice("2_dot.yml");
+
+    connection::Connection p1 = connection::Connection.NewPlungerGate("P1");
+    connection::Connection p2 = connection::Connection.NewPlungerGate("P2");
+    connection::Connection s1 = connection::Connection.NewPlungerGate("S1");
+    symbolUnit::SymbolUnit volt = symbolUnit::SymbolUnit.Volt();
+
+    // 1. Build start point (-0.5V, -0.5V, -0.1V)
+    map::Map<connection::Connection, quantity::Quantity> startMap = map::Map.New();
+    startMap.Set(p1, quantity::Quantity.New(-0.5, volt));
+    startMap.Set(p2, quantity::Quantity.New(-0.5, volt));
+    startMap.Set(s1, quantity::Quantity.New(-0.1, volt));
+    point::Point startPt = point::Point.NewFromQuantity(startMap);
+
+    // 2. Build end point (+0.5V, +0.5V, -0.1V)
+    map::Map<connection::Connection, quantity::Quantity> endMap = map::Map.New();
+    endMap.Set(p1, quantity::Quantity.New(0.5, volt));
+    endMap.Set(p2, quantity::Quantity.New(0.5, volt));
+    endMap.Set(s1, quantity::Quantity.New(-0.1, volt));
+    point::Point endPt = point::Point.NewFromQuantity(endMap);
+
+    // 3. Request measurement along the ray and ramp back
+    array::Array<point::Point> blips;
+    blips = rayMeasurement::MeasureRay(startPt, endPt, 200);
+
+    int count = blips.Size();
+    Array<string> logArgs = Array.New();
+    logArgs.PushBack(strings::FromInt(count));
+    log::Info(strings::Format("MeasureRay diagonal detected {} blip(s)", logArgs));
+
+    // Assert we detected exactly 3 Coulomb blockade transitions along this diagonal ray
+    Error err1 = t.ExpectIntEq(3, count, "Expected exactly 3 charge transitions along the diagonal ray");
+
+    // 4. Verify coordinates of detected transition points
+    point::Point blip0 = blips.GetIndex(0);
+    map::Map<connection::Connection, quantity::Quantity> coords0 = blip0.Coordinates();
+    quantity::Quantity q0 = coords0.Get(p1);
+    Error err2 = t.ExpectFloatEq(0.088, q0.Value(), 0.02, "Peak 0 voltage around 0.088V");
+
+    point::Point blip1 = blips.GetIndex(1);
+    map::Map<connection::Connection, quantity::Quantity> coords1 = blip1.Coordinates();
+    quantity::Quantity q1 = coords1.Get(p1);
+    Error err3 = t.ExpectFloatEq(0.274, q1.Value(), 0.02, "Peak 1 voltage around 0.274V");
+
+    point::Point blip2 = blips.GetIndex(2);
+    map::Map<connection::Connection, quantity::Quantity> coords2 = blip2.Coordinates();
+    quantity::Quantity q2 = coords2.Get(p1);
+    Error err4 = t.ExpectFloatEq(0.455, q2.Value(), 0.02, "Peak 2 voltage around 0.455V");
+
+    -> __end(runner, t);
+  }
+
+  state test_MeasureRaySingleGate (TestRunner runner, TestContext t) {
+    hub::RestartDevice("2_dot.yml");
+
+    connection::Connection p1 = connection::Connection.NewPlungerGate("P1");
+    connection::Connection p2 = connection::Connection.NewPlungerGate("P2");
+    connection::Connection s1 = connection::Connection.NewPlungerGate("S1");
+    symbolUnit::SymbolUnit volt = symbolUnit::SymbolUnit.Volt();
+
+    // Sweep P1 alone from -0.5V to +0.5V while keeping P2 = 0.0V
+    map::Map<connection::Connection, quantity::Quantity> startMap = map::Map.New();
+    startMap.Set(p1, quantity::Quantity.New(-0.5, volt));
+    startMap.Set(p2, quantity::Quantity.New(0.0, volt));
+    startMap.Set(s1, quantity::Quantity.New(-0.1, volt));
+    point::Point startPt = point::Point.NewFromQuantity(startMap);
+
+    map::Map<connection::Connection, quantity::Quantity> endMap = map::Map.New();
+    endMap.Set(p1, quantity::Quantity.New(0.5, volt));
+    endMap.Set(p2, quantity::Quantity.New(0.0, volt));
+    endMap.Set(s1, quantity::Quantity.New(-0.1, volt));
+    point::Point endPt = point::Point.NewFromQuantity(endMap);
+
+    array::Array<point::Point> blips;
+    blips = rayMeasurement::MeasureRay(startPt, endPt, 200);
+
+    int count = blips.Size();
+    Array<string> logArgs = Array.New();
+    logArgs.PushBack(strings::FromInt(count));
+    log::Info(strings::Format("MeasureRay single gate detected {} blip(s)", logArgs));
+
+    // Transitions across P1 alone
+    Error err1 = t.ExpectTrue(count >= 1, "At least 1 transition detected along P1 ray");
+
+    -> __end(runner, t);
+  }
+}
