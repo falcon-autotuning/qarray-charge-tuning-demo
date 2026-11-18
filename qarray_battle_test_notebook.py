@@ -94,7 +94,7 @@ def _(ChargeSensedDotArray, device_selector: marimo.ui.radio, np):
     # C_diag = electron_charge**2 / charging_energy # Typically about 40-70 atto Farads
     # C_dot_dot = 0 # Typically about 0 to 10 atto Farads
 
-    # 1. Cdd: strictly nearest-neighbor tridiagonal
+    # Cdd: strictly nearest-neighbor tridiagonal
     Cdd = np.zeros((n_dots, n_dots))
     for _i in range(n_dots - 1):
         Cdd[_i, _i] = dot_dot_diag_cap
@@ -102,19 +102,35 @@ def _(ChargeSensedDotArray, device_selector: marimo.ui.radio, np):
         Cdd[_i + 1, _i] = dot_dot_cap
     Cdd[n_dots - 1, n_dots - 1] = dot_dot_diag_cap
 
-    # 2. Cgd: nearest-neighbor plungers only, non-adjacent are 0.0
-    Cgd = np.zeros((n_dots, n_gates))
-    for _i in range(n_dots):
-        Cgd[_i, _i] = gate_dot_cap
-        for _j in range(n_plungers):
-            if abs(_i - _j) == 1:
-                Cgd[_i, _j] = gate_dot_cap / 4  # was .1, is now .012
-        for _k in range(n_sensors):
-            if _i // 3 == _k:
-                Cgd[_i, _k + n_plungers - 1] = sensor_gate_dot_cap
-            # else get 0.0
+    gate_to_sensor_caps = [gate_dot_cap / 6, gate_dot_cap / 4, gate_dot_cap / 6]
 
-    # 3. Cds: Sensor placed adjacent to Dot 1
+    Cgd = np.zeros((n_dots, n_gates))
+
+    # plunger -> dot couplings
+    for dot in range(n_dots):
+        Cgd[dot, dot] = gate_dot_cap
+        if dot > 0:
+            Cgd[dot, dot - 1] = gate_dot_cap / 4
+        if dot < n_plungers - 1:
+            Cgd[dot, dot + 1] = gate_dot_cap / 4
+    # sensor gate -> dot couplings
+    for sensor in range(n_sensors):
+        sensor_col = n_plungers + sensor
+        for local_dot, cap in enumerate(gate_to_sensor_caps):
+            dot = 3 * sensor + local_dot
+            if dot < n_dots:
+                Cgd[dot, sensor_col] = cap
+    # Cgs: Pure sensor gate coupling
+    Cgs = np.zeros((n_sensors, n_gates))
+    for sensor in range(n_sensors):
+        sensor_col = n_plungers + sensor
+        for local_gate, cap in enumerate(gate_to_sensor_caps):
+            gate = 3 * sensor + local_gate
+            if gate < n_plungers:
+                Cgs[sensor, gate] = cap
+        Cgs[sensor, sensor_col] = gate_dot_cap
+
+    # Cds: Sensor placed adjacent to Dot 1
     Cds = np.zeros((n_sensors, n_dots))
 
     sensor_caps = [0.85, 0.95, 0.75]
@@ -125,11 +141,6 @@ def _(ChargeSensedDotArray, device_selector: marimo.ui.radio, np):
                 Cds[_j, _i + 3 * _j] = dot_sensor_cap * sensor_caps[_i]
             else:
                 break
-
-    # 4. Cgs: Pure sensor gate coupling
-    Cgs = np.zeros((n_sensors, n_gates))
-    Cgs[0, :-1] = gate_dot_cap / 4  # assumes screening gate width proportion squared
-    Cgs[0, -1] = gate_dot_cap
 
     active_device = ChargeSensedDotArray(
         Cdd=Cdd,
@@ -707,23 +718,14 @@ def _(
     )
 
     static_P_X, static_P_Y = np.meshgrid(x_grid, y_grid)
-    static_vg_slice = np.tile(v0_vector, (static_res_csd, static_res_csd, 1))
-    for _i, _g in enumerate(all_gate_names):
-        static_vg_slice[:, :, _i] = (
-            v0_controls[_g].value
-            + (x_controls[_g].value * static_P_X)
-            + (y_controls[_g].value * static_P_Y)
-        )
-    # vg = np.zeros((static_res_csd * static_res_csd, n_gates))
-    #
-    # vg[:, : len(all_gate_names)] = (
-    #     v0_vector[None, :]
-    #     + static_P_X.ravel()[:, None] * x_vector[None, :]
-    #     + static_P_Y.ravel()[:, None] * y_vector[None, :]
-    # )
-    sensor_response, charge_states = active_device.charge_sensor_open(
-        static_vg_slice.reshape(-1, n_gates)
+    vg = np.zeros((static_res_csd * static_res_csd, n_gates))
+
+    vg[:, : len(all_gate_names)] = (
+        v0_vector[None, :]
+        + static_P_X.ravel()[:, None] * x_vector[None, :]
+        + static_P_Y.ravel()[:, None] * y_vector[None, :]
     )
+    sensor_response, charge_states = active_device.charge_sensor_open(vg)
 
     x_name = "Virtual X"
     y_name = "Virtual Y"
