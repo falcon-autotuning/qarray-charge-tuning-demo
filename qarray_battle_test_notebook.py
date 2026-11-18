@@ -75,9 +75,8 @@ def _(ChargeSensedDotArray, device_selector: marimo.ui.radio, np):
     electron_charge = 1.6 * 10 ** (-19)  # Coulumbs
     wiggle_factor = 1
 
-    interdot_cap = 3.0 * attoFarads / electron_charge  # atto Farads
-
     charging_energy = 0.013  # Volts, 13mV
+    noise_amplitude = 0.05
 
     gate_dot_cap = 1 / charging_energy  # Coulumbs / Volts -> Farads
 
@@ -93,15 +92,11 @@ def _(ChargeSensedDotArray, device_selector: marimo.ui.radio, np):
         (1 / wiggle_factor) * 30 * attoFarads / electron_charge
     )  # Typically about 40-70 atto Farads
 
-    sensor_gate_dot_cap = 0.1 * attoFarads / electron_charge
-    # C_diag = electron_charge**2 / charging_energy # Typically about 40-70 atto Farads
-    # C_dot_dot = 0 # Typically about 0 to 10 atto Farads
-
     # Cdd: strictly nearest-neighbor tridiagonal
     Cdd = np.zeros((n_dots, n_dots))
     for _i in range(n_dots - 1):
         Cdd[_i, _i] = dot_dot_diag_cap
-        Cdd[_i, _i + 1] = dot_dot_cap  # was .1
+        Cdd[_i, _i + 1] = dot_dot_cap
         Cdd[_i + 1, _i] = dot_dot_cap
     Cdd[n_dots - 1, n_dots - 1] = dot_dot_diag_cap
 
@@ -145,6 +140,9 @@ def _(ChargeSensedDotArray, device_selector: marimo.ui.radio, np):
             else:
                 break
 
+    from qarray.noise_models import WhiteNoise
+
+    white_noise = WhiteNoise(amplitude=noise_amplitude)
     active_device = ChargeSensedDotArray(
         Cdd=Cdd,
         Cgd=Cgd,
@@ -153,6 +151,7 @@ def _(ChargeSensedDotArray, device_selector: marimo.ui.radio, np):
         charge_carrier="electrons",
         coulomb_peak_width=0.0005,
         T=0.1,
+        noise_model=white_noise,
     )
     print("Dot carrier:", active_device.charge_carrier)
     return (
@@ -669,12 +668,12 @@ def _(
 
         vg_ray = np.linspace(v_start, v_end, num_pts)
 
-        sign = 1
+        ray_sign = 1
         if active_device.charge_carrier == "electrons":
-            sign = -1
+            ray_sign = -1
 
         # Native qarray simulation of sensor response and ideal ground state
-        raw_sensor, ideal_charges = active_device.charge_sensor_open(sign * vg_ray)
+        raw_sensor, ideal_charges = active_device.charge_sensor_open(ray_sign * vg_ray)
 
         final_charges = ideal_charges[-1].astype(int)
         ideal_final = ideal_charges[-1].astype(int)
@@ -778,10 +777,10 @@ def _(
         + static_P_X.ravel()[:, None] * x_vector[None, :]
         + static_P_Y.ravel()[:, None] * y_vector[None, :]
     )
-    sign = 1
+    static_sign = 1
     if active_device.charge_carrier == "electrons":
-        sign = -1
-    sensor_response, charge_states = active_device.charge_sensor_open(sign * vg)
+        static_sign = -1
+    sensor_response, charge_states = active_device.charge_sensor_open(static_sign * vg)
 
     x_name = "Virtual X"
     y_name = "Virtual Y"
