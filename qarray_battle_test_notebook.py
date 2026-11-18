@@ -51,7 +51,7 @@ def _(mo):
 
 
 @app.cell
-def _(ChargeSensedDotArray, device_selector, np):
+def _(ChargeSensedDotArray, device_selector: marimo.ui.radio, np):
     n_dots = device_selector.value
     n_plungers = n_dots
     # n_barriers = n_dots - 1
@@ -357,8 +357,8 @@ def _(
 ):
     _ = get_static_reset()
 
-    static_start_val = -4 * charging_energy
-    static_end_val = 4 * charging_energy
+    static_start_val = -50 * charging_energy
+    static_end_val = 50 * charging_energy
     static_step_val = (static_end_val - static_start_val) / 50
 
     _v0_dict = {}
@@ -373,19 +373,19 @@ def _(
 
         _v0_dict[_g] = mo.ui.number(
             value=_v0_init,
-            step=0.01,
+            step=0.001,
             debounce=True,
             on_change=lambda val, g=_g: static_cache["v0"].update({g: val}),
         )
         _x_dict[_g] = mo.ui.number(
             value=_x_init,
-            step=0.01,
+            step=0.001,
             debounce=True,
             on_change=lambda val, g=_g: static_cache["x"].update({g: val}),
         )
         _y_dict[_g] = mo.ui.number(
             value=_y_init,
-            step=0.01,
+            step=0.001,
             debounce=True,
             on_change=lambda val, g=_g: static_cache["y"].update({g: val}),
         )
@@ -773,10 +773,7 @@ def _(
                 static_res_csd,
             )
 
-            gradient = np.hypot(
-                np.gradient(image, axis=0),
-                np.gradient(image, axis=1),
-            )
+            gradient = np.gradient(image, axis=0) + np.gradient(image, axis=1)
 
             static_im = ax.imshow(
                 gradient,
@@ -788,7 +785,7 @@ def _(
                     static_y_max,
                 ],
                 cmap="viridis",
-                aspect="auto",
+                aspect="equal",
             )
 
             ax.set_xlabel(f"{x_name} (V)")
