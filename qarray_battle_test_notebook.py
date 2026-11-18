@@ -12,7 +12,27 @@ def _():
     from qarray import ChargeSensedDotArray
     from scipy.signal import find_peaks
 
-    return ChargeSensedDotArray, find_peaks, mo, np, plt
+    get_static_reset, set_static_reset = mo.state(0)
+    static_cache = {
+        "v0": {},
+        "x": {"P1": 1.0},
+        "y": {"P2": 1.0},
+        "x_min": None,
+        "x_max": None,
+        "y_min": None,
+        "y_max": None,
+    }
+
+    return (
+        ChargeSensedDotArray,
+        find_peaks,
+        mo,
+        np,
+        plt,
+        static_cache,
+        get_static_reset,
+        set_static_reset,
+    )
 
 
 @app.cell(hide_code=True)
@@ -299,8 +319,32 @@ def _(
         ray_controls,
         ray_axis,
         commit_btn,
-        reset_btn,
     )
+
+
+@app.cell(hide_code=True)
+def _(mo, static_cache, set_static_reset):
+    def _reset_static(_):
+        static_cache.clear()
+        static_cache.update(
+            {
+                "v0": {},
+                "x": {"P1": 1.0},
+                "y": {"P2": 1.0},
+                "x_min": None,
+                "x_max": None,
+                "y_min": None,
+                "y_max": None,
+            }
+        )
+        set_static_reset(lambda n: n + 1)
+
+    reset_static_btn = mo.ui.button(
+        label="Reset",
+        kind="danger",
+        on_click=_reset_static,
+    )
+    return (reset_static_btn,)
 
 
 @app.cell(hide_code=True)
@@ -308,8 +352,10 @@ def _(
     charging_energy,
     mo,
     all_gate_names,
-    resolution_slider,
+    static_cache,
+    get_static_reset,
 ):
+    _ = get_static_reset()
 
     static_start_val = -4 * charging_energy
     static_end_val = 4 * charging_energy
@@ -320,12 +366,28 @@ def _(
     _y_dict = {}
 
     for _i, _g in enumerate(all_gate_names):
-        _v0_dict[_g] = mo.ui.number(value=0.0, step=0.01, debounce=True)
+        # Look up saved value in static_cache, falling back to default
+        _v0_init = static_cache["v0"].get(_g, 0.0)
+        _x_init = static_cache["x"].get(_g, 1.0 if _i == 0 else 0.0)
+        _y_init = static_cache["y"].get(_g, 1.0 if _i == 1 else 0.0)
+
+        _v0_dict[_g] = mo.ui.number(
+            value=_v0_init,
+            step=0.01,
+            debounce=True,
+            on_change=lambda val, g=_g: static_cache["v0"].update({g: val}),
+        )
         _x_dict[_g] = mo.ui.number(
-            value=1.0 if _i == 0 else 0.0, step=0.01, debounce=True
+            value=_x_init,
+            step=0.01,
+            debounce=True,
+            on_change=lambda val, g=_g: static_cache["x"].update({g: val}),
         )
         _y_dict[_g] = mo.ui.number(
-            value=1.0 if _i == 1 else 0.0, step=0.01, debounce=True
+            value=_y_init,
+            step=0.01,
+            debounce=True,
+            on_change=lambda val, g=_g: static_cache["y"].update({g: val}),
         )
 
     v0_controls = mo.ui.dictionary(_v0_dict)
@@ -370,39 +432,50 @@ def _(
         start=static_start_val,
         stop=static_end_val,
         step=static_step_val,
-        value=float(-charging_energy),
+        value=static_cache["x_min"]
+        if static_cache["x_min"] is not None
+        else float(-charging_energy),
         debounce=True,
         full_width=False,
+        on_change=lambda val: static_cache.update({"x_min": val}),
     )
 
     x_max = mo.ui.number(
         start=static_start_val,
         stop=static_end_val,
         step=static_step_val,
-        value=float(charging_energy),
+        value=static_cache["x_max"]
+        if static_cache["x_max"] is not None
+        else float(charging_energy),
         debounce=True,
         full_width=False,
+        on_change=lambda val: static_cache.update({"x_max": val}),
     )
 
     y_min = mo.ui.number(
         start=static_start_val,
         stop=static_end_val,
         step=static_step_val,
-        value=float(-charging_energy),
+        value=static_cache["y_min"]
+        if static_cache["y_min"] is not None
+        else float(-charging_energy),
         debounce=True,
         full_width=False,
+        on_change=lambda val: static_cache.update({"y_min": val}),
     )
 
     y_max = mo.ui.number(
         start=static_start_val,
         stop=static_end_val,
         step=static_step_val,
-        value=float(charging_energy),
+        value=static_cache["y_max"]
+        if static_cache["y_max"] is not None
+        else float(charging_energy),
         debounce=True,
         full_width=False,
+        on_change=lambda val: static_cache.update({"y_max": val}),
     )
 
-    # 2. Apply .style() only inside the layout containers
     x_domain = mo.hstack(
         [
             mo.md(r"$x\text{ domain: }[$"),
@@ -429,21 +502,10 @@ def _(
         gap=0.25,
     )
 
-    static_panel = mo.vstack(
-        [
-            virtual_gate_matrix,
-            mo.hstack(
-                [
-                    x_domain,
-                    y_domain,
-                ]
-            ),
-            resolution_slider,
-        ]
-    )
-
     return (
-        static_panel,
+        virtual_gate_matrix,
+        x_domain,
+        y_domain,
         v0_controls,
         x_controls,
         y_controls,
@@ -452,6 +514,32 @@ def _(
         y_min,
         y_max,
     )
+
+
+@app.cell(hide_code=True)
+def _(
+    mo,
+    virtual_gate_matrix,
+    x_domain,
+    y_domain,
+    reset_static_btn,
+    resolution_slider,
+):
+    static_panel = mo.vstack(
+        [
+            virtual_gate_matrix,
+            mo.hstack(
+                [
+                    x_domain,
+                    y_domain,
+                    reset_static_btn,
+                ]
+            ),
+            resolution_slider,
+        ]
+    )
+
+    return (static_panel,)
 
 
 @app.cell(hide_code=True)
