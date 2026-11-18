@@ -140,13 +140,6 @@ def _(ChargeSensedDotArray, device_selector: marimo.ui.radio, np):
         coulomb_peak_width=0.0005,
         T=0.1,
     )
-
-    # Calibrate sensor gate S1 bias to steepest transconductance flank
-    _k = 120
-
-    _vs = np.linspace(-2 * charging_energy, 2 * charging_energy, _k)
-    _vg = np.zeros((_k, n_gates))
-    _vg[:, -1] = _vs
     return (
         Cdd,
         Cds,
@@ -714,14 +707,23 @@ def _(
     )
 
     static_P_X, static_P_Y = np.meshgrid(x_grid, y_grid)
-    vg = np.zeros((static_res_csd * static_res_csd, n_gates))
-
-    vg[:, : len(all_gate_names)] = (
-        v0_vector[None, :]
-        + static_P_X.ravel()[:, None] * x_vector[None, :]
-        + static_P_Y.ravel()[:, None] * y_vector[None, :]
+    static_vg_slice = np.tile(v0_vector, (static_res_csd, static_res_csd, 1))
+    for _i, _g in enumerate(all_gate_names):
+        static_vg_slice[:, :, _i] = (
+            v0_controls[_g].value
+            + (x_controls[_g].value * static_P_X)
+            + (y_controls[_g].value * static_P_Y)
+        )
+    # vg = np.zeros((static_res_csd * static_res_csd, n_gates))
+    #
+    # vg[:, : len(all_gate_names)] = (
+    #     v0_vector[None, :]
+    #     + static_P_X.ravel()[:, None] * x_vector[None, :]
+    #     + static_P_Y.ravel()[:, None] * y_vector[None, :]
+    # )
+    sensor_response, charge_states = active_device.charge_sensor_open(
+        static_vg_slice.reshape(-1, n_gates)
     )
-    sensor_response, charge_states = active_device.charge_sensor_open(vg)
 
     x_name = "Virtual X"
     y_name = "Virtual Y"
