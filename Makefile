@@ -70,6 +70,8 @@ help:
 	@echo "Available presets:"
 	@cmake --list-presets=all 2>/dev/null || true
 
+# TODO: Update vcpkg to install instrument-controller
+#
 # TODO: Runs demo  
 # TODO: launch a instrument hub with a generated config, falcon-qarray-device-plugin, lua scripts, device-config, hub-config
 #
