@@ -1,0 +1,186 @@
+import (
+    "libs/falconCore/communications/voltageStates/deviceVoltageStates/deviceVoltageStates.fal" 
+    "./hub.fal"
+)
+
+struct SensorPlungerCoupling {
+    Gate _sensor;
+    Gate _plunger;
+    Voltage _sensorChargingEnergy;
+    float _slope; // dV_sensor / dV_plunger
+
+    routine New(Gate sensor, Gate plunger) -> (SensorPlungerCoupling c) {
+        c._sensor = sensor;
+        c._plunger = plunger;
+        c._sensorChargingEnergy = 0.0;
+        c._slope = 0.0;
+    }
+
+    routine UpdateChargingEnergy(Voltage energy) -> () {
+        this._sensorChargingEnergy = energy;
+    }
+
+    routine UpdateSlope(float slope) -> () {
+        this._slope = slope;
+    }
+
+    routine ChargingEnergy() -> (Voltage energy) {
+        energy = this._sensorChargingEnergy;
+    }
+
+    routine Slope() -> (float slope) {
+        slope = this._slope;
+    }
+}
+
+routine FindBlips(DomainAxis axis) -> (Array<Point> blips) {
+    // TODO: construct waveform and perform sweep
+    blipAnalysis::AnalyzeRayBlips(trace, startPoint.Coordinates(), endPoint.Coordinates(), threshold);
+    // TODO: ramp back to start position
+    }
+
+
+autotuner ChargeSensorTuner (
+    Voltage AV,
+    Map<Gate, Voltage> sensorOperatingPoints,
+    Map<Gate, Array<Gate>> sensors // keys are sensors, and the Gates are the plungers next to the sensors
+) -> (
+    Map<Gate, Map<Gate, SensorPlungerCoupling>> calibrations, 
+    Error err
+) {
+    err = nil;
+    calibrations = Map.New();
+    int requiredBlips = 2;
+
+    start -> bootstrap;
+
+    state bootstrap {
+        VoltageState initState = CurrentVoltageState();
+        // TODO: apply sensorOperatingPoints to initState
+        // TODO: Set all dot plungers to -AV
+        // while (plungerInitIter.HasNext()) {
+        //     Gate p = plungerInitIter.Evaluate();
+        //     hub.Set(p, -1.0 * AV);
+        //     plungerInitIter.Increment();
+        // }
+        Ramp(initState);
+        Iterator<Gate> sensorIter = Iterator.New(sensors.Keys());
+        if (!sensorIter.HasNext()) {
+            terminal;
+        }
+        -> findInitialSensorPeaks(sensorIter, AV);
+    }
+
+    state findInitialSensorPeaks(Iterator<Gate> sensorIter, Voltage chargingEnergyEstimate) {
+        -> findSensorPeaks(sensorIter, 2.0*sweepSpan);
+    }
+
+    state findSensorPeaks(Iterator<Gate> sensorIter, Voltage sweepSpan) {
+        Gate sensor = sensorIter.Evaluate();
+        Direction _sensorDirection = Direction.New();
+        _sensorDirection.SetCoefficient(sensor, 1.0);
+        ControlAxis sensorAxis = NewFromPointAndDirection(
+            CurrentVoltageState(),
+            _sensorDirection
+        );
+
+        Voltage startV = CurrentVoltageState().Get(sensor);
+        Array<Point> blips = FindBlips(DomainAxis.NewFromAxis(sensorAxis, startV, sweepSpan));
+
+        if (blips.Size() < requiredBlips) {
+            -> findSensorPeaks(sensorIter, 1.5 * sweepSpan);
+        } else {
+            Point firstTransition = blips[0];
+            Voltage chargingEnergy = Voltage.New(math::abs(blips[1].Get(sensor) - blips[0].Get(sensor)));
+            // Initialize inner map for this sensor
+            if (!calibrations.Contains(sensor)) {
+                calibrations.Set(sensor, Map.New());
+            }
+
+            Iterator<Gate> plungerIter = Iterator.New(sensors.Get(sensor));
+            -> initializePlungerSlopeCalibration(sensorIter, plungerIter, firstTransition, chargingEnergy);
+        }
+    }
+
+    state initializePlungerSlopeCalibration(
+        Iterator<Gate> sensorIter,
+        Iterator<Gate> plungerIter,
+        Point firstTransition,
+        Voltage chargingEnergy
+    ) {
+        Gate sensor = sensorIter.Evaluate();
+        Gate plunger = plungerIter.Evaluate();
+
+        // Back up 0.5 CE from the first transition on the sensor gate
+        Voltage backedUpSensorV = firstTransition.Get(sensor) - (0.5 * chargingEnergy);
+        
+        VoltageState sweepStart = CurrentVoltageState();
+        sweepStart.Set(sensor, backedUpSensorV);
+        Ramp(sweepStart);
+        -> calibratePlungerSlopes(sensorIter, plungerIter, firstTransition, chargingEnergy, sweepStart);
+    }
+
+    state calibratePlungerSlopes(
+        Iterator<Gate> sensorIter,
+        Iterator<Gate> plungerIter,
+        Point firstTransition,
+        Voltage chargingEnergy,
+        Point sweepStart
+    ) {
+        Gate sensor = sensorIter.Evaluate();
+        Gate plunger = plungerIter.Evaluate();
+
+        // Sweep +1.0 CE on the sensor gate and +0.5 AV on the plunger simultaneously 
+        Direction diagonalDir = Direction.New();
+        diagonalDir.SetCoefficient(sensor, chargingEnergy.Value());
+        diagonalDir.SetCoefficient(plunger, 0.5*AV);
+        Voltage sweepLength = Math::sqrt(
+            (chargingEnergy * chargingEnergy) + ((0.5 * AV) * (0.5 * AV))
+        );
+        ControlAxis diagonalAxis = NewFromPointAndDirection(sweepStart, diagonalDir);
+        Array<Point> shiftedBlips = FindBlips(DomainAxis.NewFromAxis(diagonalAxis, 0.0, sweepLength));
+        if (shiftedBlips.Size() < 1) {
+            -> failSensorCalibration(sensor, plunger);
+        }
+
+        // Project shifted blip back into sensor & plunger voltage coordinates
+        Voltage shiftedPlungerV = shiftedBlips[0].Get(plunger);
+        Voltage shiftedSensorV = shiftedBlips[0].Get(sensor);
+
+        // Slope = dV_sensor / dV_plunger between the original transition and shifted transition
+        float slope = (shiftedSensorV - firstTransition.Get(sensor)) / (shiftedPlungerV - firstTransition.Get(plunger));
+
+        SensorPlungerCoupling coupling = SensorPlungerCoupling.New(sensor, plunger);
+        coupling.UpdateChargingEnergy(chargingEnergy);
+        coupling.UpdateSlope(slope);
+        Map<Gate,Array<Gate>> _tempmap = calibrations.Get(sensor);
+        _tempmap.Set(plunger, coupling);
+
+        // Restore plunger before testing the next plunger
+        Ramp(sweepStart);
+
+        if (!plungerIter.HasNext()) {
+            if (sensorIter.Increment()) {
+                // We estimate the charging energy of the next sensor on the previous
+                -> findInitialSensorPeaks(sensorIter, chargingEnergy);
+            } else {
+                terminal;
+            }
+        }
+
+        plungerIter.Increment();
+        -> calibratePlungerSlopes(sensorIter, plungerIter, firstTransition, chargingEnergy);
+    }
+
+    state failSensorCalibration(Gate sensor, Gate plunger) {
+        Array<string> args = Array.New();
+        args.PushBack(sensor.Name());
+        args.PushBack(plunger.Name());
+        err = Error.New(
+            string::Format(
+                "failed to find shifted transition on sensor {} when sweeping plunger {}",
+                args
+            )
+        );
+    }
+}

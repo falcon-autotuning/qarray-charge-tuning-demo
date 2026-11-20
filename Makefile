@@ -70,6 +70,16 @@ help:
 	@echo "Available presets:"
 	@cmake --list-presets=all 2>/dev/null || true
 
+# TODO: Runs demo  
+# TODO: launch a instrument hub with a generated config, falcon-qarray-device-plugin, lua scripts, device-config, hub-config
+#
+# TODO: Runs tests - testing individual libraries
+# TODO: Mock hub connectivity 
+# 
+# TODO: Start interactive qarray website
+#
+# TODO: Build libraries
+
 # ── Python ───────────────────────────────────────────────────────────────────
 # falcon-qarray-device embeds CPython and imports the `qarray` package, so the
 # interpreter it is BUILT against must be the one that has qarray installed.
