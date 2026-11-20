@@ -6,10 +6,10 @@ import (
 
 
 struct Dot {
-    Connection _gate;
+    Gate _gate;
     Voltage _energy;
     Direction _virtualizationAxis;
-    routine New(Connection gate, Voltage energy, Direction dir) -> (Dot e){
+    routine New(Gate gate, Voltage energy, Direction dir) -> (Dot e){
         e._gate = gate;
         e._energy = energy;
         e._virtualizationAxis = dir;
@@ -17,7 +17,7 @@ struct Dot {
     routine UpdateEnergy(Voltage energy) -> () {
         e._energy = energy;
     }
-    routine Gate() -> (Connection gate) {
+    routine Gate() -> (Gate gate) {
         gate = this._gate;
     }
     routine Energy() -> (Voltage energy) {
@@ -28,6 +28,329 @@ struct Dot {
     }
     routine SetDirection(Direction dir) -> () {
         this._virtualizationAxis = dir;
+    }
+}
+
+struct DotPair {
+    int _first;
+    int _second;
+
+    routine New(int i, int j) -> (DotPair p) {
+        if (i < j) {
+            p._first = i;
+            p._second = j;
+        } else {
+            p._first = j;
+            p._second = i;
+        }
+    }
+
+    routine First() -> (int first) {
+        first = this._first;
+    }
+
+    routine Second() -> (int second) {
+        second = this._second;
+    }
+}
+
+
+struct DoubleDot {
+    DotPair _pair;
+    Voltage _interdotSpacingFirst;
+    Voltage _interdotSpacingSecond;
+    float _slopeFirstWithRespectToSecond; // dV_first / dV_second
+    float _slopeSecondWithRespectToFirst; // dV_second / dV_first
+
+    routine New(DotPair pair) -> (DoubleDot dd) {
+        dd._pair = pair;
+        dd._interdotSpacingFirst = 0.0;
+        dd._interdotSpacingSecond = 0.0;
+        dd._slopeFirstWithRespectToSecond = 0.0;
+        dd._slopeSecondWithRespectToFirst = 0.0;
+    }
+
+    routine Pair() -> (DotPair pair) {
+        pair = this._pair;
+    }
+
+    routine UpdateInterdotSpacing(Voltage spacingFirst, Voltage spacingSecond) -> () {
+        this._interdotSpacingFirst = spacingFirst;
+        this._interdotSpacingSecond = spacingSecond;
+    }
+
+    routine InterdotSpacing() -> (Voltage magnitude) {
+        magnitude = Math::Sqrt(
+            (this._interdotSpacingFirst * this._interdotSpacingFirst) +
+            (this._interdotSpacingSecond * this._interdotSpacingSecond)
+        );
+    }
+
+    routine InterdotSpacingFor(int dotIndex) -> (Voltage spacing) {
+        if (dotIndex == _pair.First()) {
+            spacing = this._interdotSpacingFirst;
+        } else if (dotIndex == this._pair.Second()) {
+            spacing = this._interdotSpacingSecond;
+        } else {
+            spacing = 0.0;
+        }
+    }
+
+    routine SetSlopes(float slopeFirst_Second, float slopeSecond_First) -> () {
+        this._slopeFirstWithRespectToSecond = slopeFirst_Second;
+        this._slopeSecondWithRespectToFirst = slopeSecond_First;
+    }
+
+    routine Slope(int targetDot, int sweptDot) -> (float slope) {
+        if (targetDot == _pair.First() && sweptDot == _pair.Second()) {
+            slope = this._slopeFirstWithRespectToSecond;
+        } else if (targetDot == _pair.Second() && sweptDot == _pair.First()) {
+            slope = this._slopeSecondWithRespectToFirst;
+        } else {
+            slope = 0.0;
+        }
+    }
+}
+
+struct DotArray {
+    Array<Dot> _dots;
+    Map<DotPair, DoubleDot> _pairs;
+    Map<Gate, int> _gateToIndex;
+
+    routine New() -> (DotArray arr) {
+        arr._dots = Array.New();
+        arr._pairs = Map.New();
+        arr._gateToIndex = Map.New();
+    }
+
+    routine AddDot(Dot d) -> (int index) {
+        index = _dots.Size();
+        _dots.Push(d);
+        _gateToIndex.Set(d.Gate(), index);
+    }
+
+    routine GetDot(int index) -> (Dot d) {
+        d = _dots.Get(index);
+    }
+
+    routine GetDotByGate(Gate gate) -> (Dot d) {
+        int idx = _gateToIndex.Get(gate);
+        d = _dots.Get(idx);
+    }
+
+    routine GetOrCreatePair(int i, int j) -> (DoubleDot dd) {
+        DotPair key = DotPair.New(i, j);
+        if (!_pairs.Contains(key)) {
+            _pairs.Set(key, DoubleDot.New(key.First(), key.Second()));
+        }
+        dd = _pairs.Get(key);
+    }
+
+    routine UpdatePairSpacing(int i, int j, Voltage spacingI, Voltage spacingJ) -> () {
+        DoubleDot dd = this.GetOrCreatePair(i, j);
+        if (i < j) {
+            dd.UpdateInterdotSpacing(spacingI, spacingJ);
+        } else {
+            dd.UpdateInterdotSpacing(spacingJ, spacingI);
+        }
+    }
+
+    routine UpdatePairSlopes(int i, int j, float slopeI_J, float slopeJ_I) -> () {
+        DoubleDot dd = this.GetOrCreatePair(i, j);
+        if (i < j) {
+            dd.SetSlopes(slopeI_J, slopeJ_I);
+        } else {
+            dd.SetSlopes(slopeJ_I, slopeI_J);
+        }
+    }
+
+    routine GetSlope(int targetDot, int sweptDot) -> (float slope) {
+        if (targetDot == sweptDot) {
+            slope = 1.0;
+        } else {
+            DoubleDot dd = this.GetOrCreatePair(targetDot, sweptDot);
+            slope = dd.Slope(targetDot, sweptDot);
+        }
+    }
+}
+
+
+struct SensorPlungerCoupling {
+    Gate _sensor;
+    Gate _plunger;
+    Voltage _sensorChargingEnergy;
+    float _slope; // dV_sensor / dV_plunger
+
+    routine New(Gate sensor, Gate plunger) -> (SensorPlungerCoupling c) {
+        c._sensor = sensor;
+        c._plunger = plunger;
+        c._sensorChargingEnergy = 0.0;
+        c._slope = 0.0;
+    }
+
+    routine UpdateChargingEnergy(Voltage energy) -> () {
+        this._sensorChargingEnergy = energy;
+    }
+
+    routine UpdateSlope(float slope) -> () {
+        this._slope = slope;
+    }
+
+    routine ChargingEnergy() -> (Voltage energy) {
+        energy = this._sensorChargingEnergy;
+    }
+
+    routine Slope() -> (float slope) {
+        slope = this._slope;
+    }
+}
+
+// Placeholder signature for your unimplemented blip finder routine
+// Must return back to starting point in device space
+routine FindBlips(DomainAxis axis) -> (Array<Point> blips);
+
+autotuner ChargeSensorTuner (
+    Voltage AV,
+    Map<Gate, Voltage> sensorOperatingPoints,
+    Map<Gate, Array<Gate>> sensors // keys are sensors, and the Gates are the plungers next to the sensors
+) -> (
+    Map<Gate, Map<Gate, SensorPlungerCoupling>> calibrations, 
+    Error err
+) {
+    err = nil;
+    calibrations = Map.New();
+    int requiredBlips = 2;
+
+    start -> bootstrap;
+
+    state bootstrap {
+        VoltageState initState = CurrentVoltageState();
+        // TODO: apply sensorOperatingPoints to initState
+        // TODO: Set all dot plungers to -AV
+        // while (plungerInitIter.HasNext()) {
+        //     Gate p = plungerInitIter.Evaluate();
+        //     hub.Set(p, -1.0 * AV);
+        //     plungerInitIter.Increment();
+        // }
+        Ramp(initState);
+        Iterator<Gate> sensorIter = Iterator.New(sensors.Keys());
+        if (!sensorIter.HasNext()) {
+            terminal;
+        }
+        -> findInitialSensorPeaks(sensorIter, AV);
+    }
+
+    state findInitialSensorPeaks(Iterator<Gate> sensorIter, Voltage chargingEnergyEstimate) {
+        -> findSensorPeaks(sensorIter, 2.0*sweepSpan);
+    }
+
+    state findSensorPeaks(Iterator<Gate> sensorIter, Voltage sweepSpan) {
+        Gate sensor = sensorIter.Evaluate();
+        Direction _sensorDirection = Direction.New();
+        _sensorDirection.SetCoefficient(sensor, 1.0);
+        ControlAxis sensorAxis = NewFromPointAndDirection(
+            CurrentVoltageState(),
+            _sensorDirection
+        );
+
+        Voltage startV = CurrentVoltageState().Get(sensor);
+        Array<Point> blips = FindBlips(DomainAxis.NewFromAxis(sensorAxis, startV, sweepSpan));
+
+        if (blips.Size() < requiredBlips) {
+            -> findSensorPeaks(sensorIter, 1.5 * sweepSpan);
+        } else {
+            Point firstTransition = blips[0];
+            Voltage chargingEnergy = Voltage.New(math::abs(blips[1].Get(sensor) - blips[0].Get(sensor)));
+            // Initialize inner map for this sensor
+            if (!calibrations.Contains(sensor)) {
+                calibrations.Set(sensor, Map.New());
+            }
+
+            Iterator<Gate> plungerIter = Iterator.New(sensors.Get(sensor));
+            -> initializePlungerSlopeCalibration(sensorIter, plungerIter, firstTransition, chargingEnergy);
+        }
+    }
+
+    state initializePlungerSlopeCalibration(
+        Iterator<Gate> sensorIter,
+        Iterator<Gate> plungerIter,
+        Point firstTransition,
+        Voltage chargingEnergy
+    ) {
+        Gate sensor = sensorIter.Evaluate();
+        Gate plunger = plungerIter.Evaluate();
+
+        // Back up 0.5 CE from the first transition on the sensor gate
+        Voltage backedUpSensorV = firstTransition.Get(sensor) - (0.5 * chargingEnergy);
+        
+        VoltageState sweepStart = CurrentVoltageState();
+        sweepStart.Set(sensor, backedUpSensorV);
+        Ramp(sweepStart);
+        -> calibratePlungerSlopes(sensorIter, plungerIter, firstTransition, chargingEnergy, sweepStart);
+    }
+
+    state calibratePlungerSlopes(
+        Iterator<Gate> sensorIter,
+        Iterator<Gate> plungerIter,
+        Point firstTransition,
+        Voltage chargingEnergy,
+        Point sweepStart
+    ) {
+        Gate sensor = sensorIter.Evaluate();
+        Gate plunger = plungerIter.Evaluate();
+
+        // Sweep +1.0 CE on the sensor gate and +0.5 AV on the plunger simultaneously 
+        Direction diagonalDir = Direction.New();
+        diagonalDir.SetCoefficient(sensor, chargingEnergy.Value());
+        diagonalDir.SetCoefficient(plunger, 0.5*AV);
+        Voltage sweepLength = Math::sqrt(
+            (chargingEnergy * chargingEnergy) + ((0.5 * AV) * (0.5 * AV))
+        );
+        ControlAxis diagonalAxis = NewFromPointAndDirection(sweepStart, diagonalDir);
+        Array<Point> shiftedBlips = FindBlips(DomainAxis.NewFromAxis(diagonalAxis, 0.0, sweepLength));
+        if (shiftedBlips.Size() < 1) {
+            -> failSensorCalibration(sensor, plunger);
+        }
+
+        // Project shifted blip back into sensor & plunger voltage coordinates
+        Voltage shiftedPlungerV = shiftedBlips[0].Get(plunger);
+        Voltage shiftedSensorV = shiftedBlips[0].Get(sensor);
+
+        // Slope = dV_sensor / dV_plunger between the original transition and shifted transition
+        float slope = (shiftedSensorV - firstTransition.Get(sensor)) / (shiftedPlungerV - firstTransition.Get(plunger));
+
+        SensorPlungerCoupling coupling = SensorPlungerCoupling.New(sensor, plunger);
+        coupling.UpdateChargingEnergy(chargingEnergy);
+        coupling.UpdateSlope(slope);
+        Map<Gate,Array<Gate>> _tempmap = calibrations.Get(sensor);
+        _tempmap.Set(plunger, coupling);
+
+        // Restore plunger before testing the next plunger
+        Ramp(sweepStart);
+
+        if (!plungerIter.HasNext()) {
+            if (sensorIter.Increment()) {
+                // We estimate the charging energy of the next sensor on the previous
+                -> findInitialSensorPeaks(sensorIter, chargingEnergy);
+            } else {
+                terminal;
+            }
+        }
+
+        plungerIter.Increment();
+        -> calibratePlungerSlopes(sensorIter, plungerIter, firstTransition, chargingEnergy);
+    }
+
+    state failSensorCalibration(Gate sensor, Gate plunger) {
+        Array<string> args = Array.New();
+        args.PushBack(sensor.Name());
+        args.PushBack(plunger.Name());
+        err = Error.New(
+            string::Format(
+                "failed to find shifted transition on sensor {} when sweeping plunger {}",
+                args
+            )
+        );
     }
 }
 
@@ -256,8 +579,12 @@ Ix1 := Tx1b -(+)(1/slope2)*z'
 Iy1 := Ty1b +(-)slope2*z'
 maxguess := (Ix1, Iy1, -(+)AV, ...)
 now we want to query transitions searching at a slope of slope1
-TODO: slope2 line intersecting C1b with variable w, w=0 when on slope1 line intersecting  (T1,-(+)AV, ...), w=1 at C1b
-
+(T1 -(+)(1/slope1)*w, C1by(w), -(+)AV, ...), float w
+(Tx1b +(-)0.5AV/slope1 -(+)(1/slope2)*z, Ty1b -(+)0.5AVslope1 +(-)slope2*z, -(+)AV, ...), float z
+Solving these two equations for z,w for simultaneous z'', w'' solutions
+start1 := (Tx1b +(-)0.5AV/slope1 -(+)(1/slope2)*z''(1-z), Ty1b -(+)0.5AVslope1 +(-)slope2*z''(1-z), -(+)AV, ...), z on [0,1]
+stop1 TODO: Needs to be a function of same z 
+run Newton's method on the start1 and stop1, with a tolerance 1uV
 TODO: Begin optimization searchign for interdot, biforcating w to the left, Newton's method perhaps
 
 We will know the point of the interdot, and both slopes connecting to it for the boundary of charge state (1,1,0,...)
