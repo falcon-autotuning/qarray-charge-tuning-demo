@@ -7,12 +7,14 @@ app = marimo.App(width="full")
 @app.cell
 def _():
     import json
+    import yaml
 
     import marimo as mo
     import matplotlib.pyplot as plt
     import numpy as np
     from qarray import ChargeSensedDotArray
     from scipy.signal import find_peaks
+    import generate_device_config
 
     get_static_reset, set_static_reset = mo.state(0)
     static_cache = {
@@ -28,11 +30,13 @@ def _():
     return (
         ChargeSensedDotArray,
         find_peaks,
+        generate_device_config,
         json,
         mo,
         np,
         plt,
         static_cache,
+        yaml,
         get_static_reset,
         set_static_reset,
     )
@@ -49,96 +53,165 @@ def _(mo):
     get_state, set_state = mo.state([0, 0, 0, 0, 0])
     get_history, set_history = mo.state([])
 
-    mo.hstack([device_selector], justify="start")
-    return device_selector, get_history, get_state, set_history, set_state
+    # Physical parameters GUI controls
+    seed_input = mo.ui.number(
+        value=42,
+        step=1,
+        label="Random Seed",
+        debounce=True,
+    )
+    regen_btn = mo.ui.button(
+        label="🎲 Regenerate Config",
+        kind="warn",
+    )
+
+    charging_energy_mean = mo.ui.number(
+        value=0.013,
+        step=0.001,
+        label="E_c Mean (V)",
+        debounce=True,
+    )
+    charging_energy_std = mo.ui.number(
+        value=0.0,
+        step=0.0005,
+        label="E_c Std (V)",
+        debounce=True,
+    )
+
+    dot_dot_cap_mean = mo.ui.number(
+        value=12.5,
+        step=0.5,
+        label="C_interdot Mean",
+        debounce=True,
+    )
+    dot_dot_cap_std = mo.ui.number(
+        value=0.0,
+        step=0.5,
+        label="C_interdot Std",
+        debounce=True,
+    )
+
+    dot_sensor_cap_mean = mo.ui.number(
+        value=6.25,
+        step=0.25,
+        label="C_dot_sensor Mean",
+        debounce=True,
+    )
+    dot_sensor_cap_std = mo.ui.number(
+        value=0.0,
+        step=0.25,
+        label="C_dot_sensor Std",
+        debounce=True,
+    )
+
+    noise_amp_mean = mo.ui.number(
+        value=0.05,
+        step=0.01,
+        label="Noise Amp Mean",
+        debounce=True,
+    )
+    noise_amp_std = mo.ui.number(
+        value=0.0,
+        step=0.005,
+        label="Noise Amp Std",
+        debounce=True,
+    )
+
+    load_config_file = mo.ui.file(
+        filetypes=[".json", ".yml", ".yaml"],
+        multiple=False,
+        label="📂 Load Device Config",
+    )
+
+    config_controls = mo.ui.dictionary({
+        "seed": seed_input,
+        "ec_mean": charging_energy_mean,
+        "ec_std": charging_energy_std,
+        "dd_mean": dot_dot_cap_mean,
+        "dd_std": dot_dot_cap_std,
+        "ds_mean": dot_sensor_cap_mean,
+        "ds_std": dot_sensor_cap_std,
+        "noise_mean": noise_amp_mean,
+        "noise_std": noise_amp_std,
+    })
+
+    return (
+        device_selector,
+        get_history,
+        get_state,
+        set_history,
+        set_state,
+        regen_btn,
+        load_config_file,
+        config_controls,
+    )
 
 
 @app.cell
-def _(ChargeSensedDotArray, device_selector: marimo.ui.radio, np):
-    n_dots = device_selector.value
-    n_plungers = n_dots
-    # n_barriers = n_dots - 1
-    # n_gates = n_plungers + n_barriers + 1
-    n_sensors = (n_dots - 1) // 3 + 1
+def _(
+    ChargeSensedDotArray,
+    device_selector: marimo.ui.radio,
+    config_controls,
+    regen_btn,
+    load_config_file,
+    generate_device_config,
+    json,
+    yaml,
+    np,
+):
+    # React to button or controls change
+    _ = regen_btn.value
 
+    n_dots = device_selector.value
+
+    # Check if user uploaded a full device configuration file
+    active_device_config = None
+    if load_config_file.value:
+        _cfg_uploaded = load_config_file.value[0]
+        _content_str = _cfg_uploaded.contents.decode("utf-8")
+        try:
+            if _cfg_uploaded.name.endswith(".json"):
+                active_device_config = json.loads(_content_str)
+            else:
+                active_device_config = yaml.safe_load(_content_str)
+        except Exception as e:
+            print(f"Error reading loaded device config: {e}")
+
+    # Generate device config if not loaded from file or if dots mismatch
+    if active_device_config is None or int(active_device_config.get("n_dots", -1)) != n_dots:
+        c_vals = config_controls.value
+        seed_val = int(c_vals["seed"]) if c_vals["seed"] is not None else None
+        active_device_config = generate_device_config.generate_device_config(
+            n_dots=n_dots,
+            seed=seed_val,
+            charging_energy=float(c_vals["ec_mean"]),
+            charging_energy_std=float(c_vals["ec_std"]),
+            dot_dot_cap=float(c_vals["dd_mean"]),
+            dot_dot_cap_std=float(c_vals["dd_std"]),
+            dot_sensor_cap=float(c_vals["ds_mean"]),
+            dot_sensor_cap_std=float(c_vals["ds_std"]),
+            noise_amplitude=float(c_vals["noise_mean"]),
+            noise_amplitude_std=float(c_vals["noise_std"]),
+        )
+
+    n_dots = int(active_device_config["n_dots"])
+    n_plungers = n_dots
+    n_sensors = (n_dots - 1) // 3 + 1
     n_gates = n_plungers + n_sensors
 
     plunger_names = [f"P{_i + 1}" for _i in range(n_plungers)]
     sensor_names = [f"S{_i + 1}" for _i in range(n_sensors)]
-    # barrier_names = [f"B{_i+1}" for _i in range(n_barriers)]
-    # all_gate_names = plunger_names + barrier_names + ["S1"]
     all_gate_names = plunger_names + sensor_names
 
-    # QArray assumes e=1, which took time to determine
+    caps = active_device_config["capacitances"]
+    Cdd = np.array(caps["Cdd"], dtype=float)
+    Cgd = np.array(caps["Cgd"], dtype=float)
+    Cds = np.array(caps["Cds"], dtype=float)
+    Cgs = np.array(caps["Cgs"], dtype=float)
 
-    attoFarads = 10**-18
-    electron_charge = 1.6 * 10 ** (-19)  # Coulumbs
-    wiggle_factor = 1
-
-    charging_energy = 0.013  # Volts, 13mV
-    noise_amplitude = 0.05
-
-    gate_dot_cap = 1 / charging_energy  # Coulumbs / Volts -> Farads
-
-    dot_dot_cap = (
-        (1 / wiggle_factor) * 10.0 * attoFarads / electron_charge
-    )  # atto Farads (typically between 0-10)
-
-    dot_sensor_cap = (
-        (1 / wiggle_factor) * 1.0 * attoFarads / electron_charge
-    )  # atto Farads (typically between 0-2) is just based on how far the sensor is from the dot, so derived from same as interdot
-
-    dot_dot_diag_cap = (
-        (1 / wiggle_factor) * 30 * attoFarads / electron_charge
-    )  # Typically about 40-70 atto Farads
-
-    # Cdd: strictly nearest-neighbor tridiagonal
-    Cdd = np.zeros((n_dots, n_dots))
-    for _i in range(n_dots - 1):
-        Cdd[_i, _i] = dot_dot_diag_cap
-        Cdd[_i, _i + 1] = dot_dot_cap
-        Cdd[_i + 1, _i] = dot_dot_cap
-    Cdd[n_dots - 1, n_dots - 1] = dot_dot_diag_cap
-
-    gate_to_sensor_caps = [gate_dot_cap / 6, gate_dot_cap / 4, gate_dot_cap / 6]
-
-    Cgd = np.zeros((n_dots, n_gates))
-
-    # plunger -> dot couplings
-    for dot in range(n_dots):
-        Cgd[dot, dot] = gate_dot_cap
-        if dot > 0:
-            Cgd[dot, dot - 1] = gate_dot_cap / 4
-        if dot < n_plungers - 1:
-            Cgd[dot, dot + 1] = gate_dot_cap / 4
-    # sensor gate -> dot couplings
-    for sensor in range(n_sensors):
-        sensor_col = n_plungers + sensor
-        for local_dot, cap in enumerate(gate_to_sensor_caps):
-            dot = 3 * sensor + local_dot
-            if dot < n_dots:
-                Cgd[dot, sensor_col] = cap
-    # Cgs: Pure sensor gate coupling
-    Cgs = np.zeros((n_sensors, n_gates))
-    for sensor in range(n_sensors):
-        sensor_col = n_plungers + sensor
-        for local_gate, cap in enumerate(gate_to_sensor_caps):
-            gate = 3 * sensor + local_gate
-            if gate < n_plungers:
-                Cgs[sensor, gate] = cap
-        Cgs[sensor, sensor_col] = gate_dot_cap
-
-    # Cds: Sensor placed adjacent to Dot 1
-    Cds = np.zeros((n_sensors, n_dots))
-
-    sensor_caps = [0.85, 0.95, 0.75]
-
-    for _j in range(n_sensors):
-        for _i in range(3):
-            if _i + 3 * _j < n_dots:
-                Cds[_j, _i + 3 * _j] = dot_sensor_cap * sensor_caps[_i]
-            else:
-                break
+    phys_params = active_device_config.get("physical_parameters", {})
+    charging_energy = float(phys_params.get("charging_energy", 0.013))
+    noise_amplitude = float(phys_params.get("noise_amplitude", 0.05))
 
     from qarray.noise_models import WhiteNoise
 
@@ -160,6 +233,7 @@ def _(ChargeSensedDotArray, device_selector: marimo.ui.radio, np):
         Cgd,
         Cgs,
         active_device,
+        active_device_config,
         all_gate_names,
         charging_energy,
         n_dots,
@@ -171,19 +245,75 @@ def _(ChargeSensedDotArray, device_selector: marimo.ui.radio, np):
 
 
 @app.cell
-def _(Cdd, Cds, Cgd, Cgs, np):
-    print("Cgd")
-    with np.printoptions(precision=4, suppress=True):
-        print(Cgd)
-    print("Cdd")
-    with np.printoptions(precision=4, suppress=True):
-        print(Cdd)
-    print("Cds")
-    with np.printoptions(precision=4, suppress=True):
-        print(Cds)
-    print("Cgs")
-    with np.printoptions(precision=4, suppress=True):
-        print(Cgs)
+def _(
+    mo,
+    active_device_config,
+    config_controls,
+    regen_btn,
+    load_config_file,
+    device_selector,
+    json,
+    yaml,
+):
+    # Prepare download data for the active generated/loaded config
+    config_json_bytes = json.dumps(active_device_config, indent=2).encode("utf-8")
+    config_yaml_bytes = yaml.dump(active_device_config, default_flow_style=None).encode("utf-8")
+
+    download_json_btn = mo.download(
+        data=config_json_bytes,
+        filename=f"device_config_{active_device_config.get('n_dots', 2)}dot.json",
+        mimetype="application/json",
+        label="💾 Save Device Config (JSON)",
+    )
+
+    download_yaml_btn = mo.download(
+        data=config_yaml_bytes,
+        filename=f"device_config_{active_device_config.get('n_dots', 2)}dot.yml",
+        mimetype="text/yaml",
+        label="💾 Save Device Config (YAML)",
+    )
+
+    p_params = active_device_config.get("physical_parameters", {})
+    stds = p_params.get("stds", {})
+
+    config_panel = mo.accordion({
+        "⚙️ Physical Parameters & Device Config": mo.vstack([
+            mo.hstack([
+                device_selector,
+                config_controls["seed"],
+                regen_btn,
+            ], justify="start", align="center"),
+            mo.hstack([
+                config_controls["ec_mean"],
+                config_controls["ec_std"],
+                config_controls["noise_mean"],
+                config_controls["noise_std"],
+            ], justify="start", align="center"),
+            mo.hstack([
+                config_controls["dd_mean"],
+                config_controls["dd_std"],
+                config_controls["ds_mean"],
+                config_controls["ds_std"],
+            ], justify="start", align="center"),
+            mo.hstack([
+                download_json_btn,
+                download_yaml_btn,
+                load_config_file,
+            ], justify="start", align="center"),
+            mo.md(
+                f"**Active Configuration Summary:** Dots: `{active_device_config.get('n_dots')}` | "
+                f"Seed: `{p_params.get('seed')}` | "
+                f"E_c: `{p_params.get('charging_energy', 0.013):.4f} V` | "
+                f"Noise Amp: `{p_params.get('noise_amplitude', 0.05):.4f}`"
+            ),
+        ])
+    })
+
+    return (
+        config_panel,
+        download_json_btn,
+        download_yaml_btn,
+    )
 
 
 @app.cell
@@ -293,9 +423,10 @@ def _(
         rays_rows.append(
             mo.hstack(
                 [
-                    ray_dict[f"{_p}_start"],
-                    ray_dict[f"{_p}_end"],
-                ]
+                    ray_controls[f"{_p}_start"],
+                    ray_controls[f"{_p}_end"],
+                ],
+                justify="start",
             )
         )
 
@@ -303,9 +434,10 @@ def _(
         rays_rows.append(
             mo.hstack(
                 [
-                    ray_dict[f"S{_i + 1}_start"],
-                    ray_dict[f"S{_i + 1}_end"],
-                ]
+                    ray_controls[f"S{_i + 1}_start"],
+                    ray_controls[f"S{_i + 1}_end"],
+                ],
+                justify="start",
             )
         )
 
@@ -316,7 +448,8 @@ def _(
                 commit_btn,
                 reset_btn,
                 ray_axis,
-            ]
+            ],
+            justify="start",
         )
     )
 
@@ -353,9 +486,14 @@ def _(json, mo, static_cache, set_static_reset):
         on_click=_reset_static,
     )
 
-    import crossfiledialog
+    try:
+        import crossfiledialog
+    except ImportError:
+        crossfiledialog = None
 
     def _save_with_os_dialog(_):
+        if crossfiledialog is None:
+            return
         path = crossfiledialog.save_file(
             title="Save JSON As",
         )
@@ -606,8 +744,11 @@ def _(view_mode, ray_panel, static_panel):
 
 
 @app.cell
-def _(view_mode):
-    view_mode
+def _(view_mode, config_panel):
+    mo.vstack([
+        config_panel,
+        view_mode,
+    ])
 
 
 @app.cell
@@ -738,6 +879,7 @@ def _(
 
 @app.cell(hide_code=True)
 def _(
+    view_mode,
     active_device,
     v0_controls,
     x_controls,
@@ -751,36 +893,42 @@ def _(
     all_gate_names,
     np,
 ):
+    if view_mode.value == "static":
+        v0_vector = np.array([v0_controls[_g].value for _g in all_gate_names])
+        x_vector = np.array([x_controls[_g].value for _g in all_gate_names])
+        y_vector = np.array([y_controls[_g].value for _g in all_gate_names])
 
-    v0_vector = np.array([v0_controls[_g].value for _g in all_gate_names])
-    x_vector = np.array([x_controls[_g].value for _g in all_gate_names])
-    y_vector = np.array([y_controls[_g].value for _g in all_gate_names])
+        static_res_csd = int(resolution_slider.value)
 
-    static_res_csd = int(resolution_slider.value)
+        x_grid = np.linspace(
+            x_min.value,
+            x_max.value,
+            static_res_csd,
+        )
+        y_grid = np.linspace(
+            y_min.value,
+            y_max.value,
+            static_res_csd,
+        )
 
-    x_grid = np.linspace(
-        x_min.value,
-        x_max.value,
-        static_res_csd,
-    )
-    y_grid = np.linspace(
-        y_min.value,
-        y_max.value,
-        static_res_csd,
-    )
+        static_P_X, static_P_Y = np.meshgrid(x_grid, y_grid)
+        vg = np.zeros((static_res_csd * static_res_csd, n_gates))
 
-    static_P_X, static_P_Y = np.meshgrid(x_grid, y_grid)
-    vg = np.zeros((static_res_csd * static_res_csd, n_gates))
-
-    vg[:, : len(all_gate_names)] = (
-        v0_vector[None, :]
-        + static_P_X.ravel()[:, None] * x_vector[None, :]
-        + static_P_Y.ravel()[:, None] * y_vector[None, :]
-    )
-    static_sign = 1
-    if active_device.charge_carrier == "electrons":
-        static_sign = -1
-    sensor_response, charge_states = active_device.charge_sensor_open(static_sign * vg)
+        vg[:, : len(all_gate_names)] = (
+            v0_vector[None, :]
+            + static_P_X.ravel()[:, None] * x_vector[None, :]
+            + static_P_Y.ravel()[:, None] * y_vector[None, :]
+        )
+        static_sign = 1
+        if active_device.charge_carrier == "electrons":
+            static_sign = -1
+        sensor_response, charge_states = active_device.charge_sensor_open(static_sign * vg)
+    else:
+        static_res_csd = 1
+        static_P_X = np.zeros((1, 1))
+        static_P_Y = np.zeros((1, 1))
+        sensor_response = np.zeros((1, 1))
+        charge_states = np.zeros((1, 1))
 
     x_name = "Virtual X"
     y_name = "Virtual Y"
@@ -832,7 +980,10 @@ def _(
                 static_res_csd,
             )
 
-            gradient = np.gradient(image, axis=0) + np.gradient(image, axis=1)
+            gradient = np.hypot(
+                np.gradient(image, axis=0),
+                np.gradient(image, axis=1),
+            )
 
             static_im = ax.imshow(
                 gradient,
@@ -933,7 +1084,7 @@ def _(
                     vg_slice[:, :, p_y_idx] = P_Y
 
                     sens_2d, _ = active_device.charge_sensor_open(
-                        vg_slice.reshape(-1, n_gates)
+                        sign * vg_slice.reshape(-1, n_gates)
                     )
                     csd_img = sens_2d[:, _j].reshape(res_csd, res_csd)
                     d_csd = np.hypot(
